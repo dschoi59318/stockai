@@ -516,6 +516,13 @@ APP_TICK_PT = APP_LABEL_PT
 APP_VALUE_PT = APP_LABEL_PT     # 막대 값 라벨(bold)
 APP_BAR_WIDTH = 0.35
 APP_LINE_WIDTH = 1.2
+# 앱 화면 색(2026-09-29, 다크 네이비 테마): 바탕 투명, 축·눈금·글자 #C9D1E0, 격자선 #1E293B.
+# 데이터 색은 그대로 두고, 어두운 바탕에서 안 보이는 색만 밝게 바꾼다:
+#   COLOR_POINT #1F3A5F(현재가 점·글자) -> APP_COLOR_POINT #7EA6FF.  리포트 경로 색은 그대로.
+APP_BG = "none"
+APP_FG = "#C9D1E0"
+APP_GRID = "#1E293B"
+APP_COLOR_POINT = "#7EA6FF"
 
 
 def app_fig(kind):
@@ -532,16 +539,23 @@ def app_fig(kind):
     else:
         fig, ax = plt.subplots(figsize=(width_in, APP_HEIGHT_IN[kind]), dpi=APP_DPI)
         axes = [ax]
+    fig.patch.set_facecolor(APP_BG)
     for a in axes:
-        a.tick_params(labelsize=APP_TICK_PT)
+        a.set_facecolor(APP_BG)
+        a.tick_params(labelsize=APP_TICK_PT, colors=APP_FG)          # 눈금·눈금 글자
+        for spine in a.spines.values():
+            spine.set_color(APP_FG)                                  # 축선
+        a.xaxis.label.set_color(APP_FG)
+        a.yaxis.label.set_color(APP_FG)
+        a.title.set_color(APP_FG)
     return plt, fig, ax
 
 
 def app_save(plt, fig, path_or_buffer, tight=True):
-    """앱 화면 그림 저장: 크기를 바꾸지 않는다(bbox_inches=None, dpi 100 -> 1100px 그대로)."""
+    """앱 화면 그림 저장: 크기를 바꾸지 않는다(bbox_inches=None, dpi 100 -> 1100px 그대로). 바탕은 투명(다크 테마)."""
     if tight:
         fig.tight_layout(pad=0.8)
-    fig.savefig(path_or_buffer, dpi=APP_DPI, bbox_inches=None, facecolor="white", format="png")
+    fig.savefig(path_or_buffer, dpi=APP_DPI, bbox_inches=None, facecolor=APP_BG, transparent=True, format="png")
     plt.close(fig)
 
 
@@ -550,14 +564,14 @@ def _range_app(low, high, cur, path_or_buffer, title=None):
     plt, fig, ax = app_fig("range")
     fig.subplots_adjust(left=0.04, right=0.96, top=0.86 if title else 0.96, bottom=0.04)
     if title:
-        ax.set_title(title, fontsize=APP_TITLE_PT, color=COLOR_POINT, pad=10)
+        ax.set_title(title, fontsize=APP_TITLE_PT, color=APP_FG, pad=10)
     ax.plot([low, high], [0, 0], color=COLOR_RANGE, linewidth=12, solid_capstyle="round", zorder=1)
-    ax.scatter([cur], [0], s=170, color=COLOR_POINT, zorder=3)
+    ax.scatter([cur], [0], s=170, color=APP_COLOR_POINT, zorder=3)
     ax.annotate(f"현재가 {cur:,}원", (cur, 0), xytext=(0, 13), textcoords="offset points",
-                ha="center", va="bottom", fontsize=APP_VALUE_PT, fontweight="bold", color=COLOR_POINT)
+                ha="center", va="bottom", fontsize=APP_VALUE_PT, fontweight="bold", color=APP_COLOR_POINT)
     for value, label in ((low, "52주 최저"), (high, "52주 최고")):
         ax.annotate(f"{label}\n{value:,}원", (value, 0), xytext=(0, -14), textcoords="offset points",
-                    ha="center", va="top", fontsize=APP_LABEL_PT, linespacing=1.3)
+                    ha="center", va="top", fontsize=APP_LABEL_PT, linespacing=1.3, color=APP_FG)
     pad = (high - low) * 0.08
     ax.set_xlim(low - pad, high + pad)
     ax.set_ylim(-1.45, 1.15)
@@ -580,9 +594,10 @@ def _returns_app(items, path_or_buffer):
                     fontsize=APP_VALUE_PT, fontweight="bold", color=COLOR_UP if value >= 0 else COLOR_DOWN)
     span = max(abs(v) for v in values) or 1
     ax.set_ylim(min(0, min(values)) - span * 0.25, max(0, max(values)) + span * 0.25)
-    ax.set_ylabel("수익률(%)", fontsize=APP_LABEL_PT)
+    ax.set_ylabel("수익률(%)", fontsize=APP_LABEL_PT, color=APP_FG)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(axis="y", alpha=0.3)
+    ax.grid(axis="y", color=APP_GRID)
+    ax.set_axisbelow(True)                                            # 격자선은 막대 뒤로
     app_save(plt, fig, path_or_buffer)
 
 

@@ -27,6 +27,7 @@ import os
 import time                                                                      # [계측]
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 import charts
@@ -62,6 +63,29 @@ button [data-testid="stMarkdownContainer"] p,
 [data-testid="stMetricValue"] p, [data-testid="stMetricDelta"] p {{ font-size: inherit; }}
 div[data-testid="stMetricValue"] {{ font-size: {APP_METRIC_PX}; }}
 </style>"""
+
+# 앱 화면 색(2026-09-29, 다크 네이비 = 5월 버전 AI STOCK ANALYZER). 기본 색은 .streamlit/config.toml [theme].
+# 여기서는 캡션(보조 글자) 색, 테두리 박스·표 모서리 12px, 페이지 바탕의 옅은 격자무늬(흰색 3%, 48px)만 맞춘다.
+APP_TEXT_COLOR = "#E6E9F0"
+APP_MUTED_COLOR = "#8A94A8"
+APP_BORDER_COLOR = "#1E293B"
+APP_THEME_CSS = f"""<style>
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {{ color: {APP_MUTED_COLOR}; }}
+[data-testid="stVerticalBlock"], [data-testid="stDataFrameResizable"] {{ border-radius: 12px; }}
+[data-testid="stApp"] {{
+  background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}}
+</style>"""
+
+
+def _dark(fig):
+    """plotly 그림의 화면 표시용 복사본: 바탕 투명 + 글자 밝게(다크 테마). 원본(리포트 이미지 경로)은 건드리지 않는다.
+    히트맵 칸 색·데이터 색은 그대로 둔다."""
+    fig = go.Figure(fig)
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color=APP_TEXT_COLOR)
+    return fig
 
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
 PRICE_CAPTION = ("가격·등락률은 정규장 종가 기준 (시간외 거래 미반영) · "
@@ -185,7 +209,8 @@ def render_financial_section(picked):
     else:
         _t = time.perf_counter()                                                 # [계측]
         with _chart_box():
-            st.plotly_chart(charts.build_fin_chart(frame, sales_name, height=APP_FIN_HEIGHT), width=APP_CHART_WIDTH)
+            st.plotly_chart(_dark(charts.build_fin_chart(frame, sales_name, height=APP_FIN_HEIGHT)),
+                            width=APP_CHART_WIDTH)
         print(f"[STEP] 차트 렌더(재무) {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
     st.caption(f"출처: 금융감독원 DART, {fin['연결구분'] or '연결'}재무제표 기준 · 단위 억 원 · "
@@ -336,8 +361,8 @@ def render_stock_tab(picked, period_label):
 
     _t = time.perf_counter()                                                     # [계측]
     with _chart_box():
-        st.plotly_chart(charts.build_price_chart(df, f"{picked['종목명']} 일봉 ({period_label})",
-                                                 height=APP_PRICE_HEIGHT), width=APP_CHART_WIDTH)
+        st.plotly_chart(_dark(charts.build_price_chart(df, f"{picked['종목명']} 일봉 ({period_label})",
+                                                       height=APP_PRICE_HEIGHT)), width=APP_CHART_WIDTH)
     print(f"[STEP] 차트 렌더(가격) {picked['종목코드']} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
 
     with st.expander("원본 데이터 보기 (최근 10일)"):
@@ -449,7 +474,7 @@ def render_sector_view(table, period, clip, base_date):
         st.error("히트맵을 그릴 데이터가 없습니다.")
         return
     with _chart_box():                                   # 화면 차트 공통 상자(표와 같은 테두리)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_dark(fig), width="stretch")
 
     summary = hm.sector_summary(table)
     view = summary[["업종", "종목 수", "등락률", "상승", "하락", "시가총액"]].copy()
@@ -523,7 +548,7 @@ def render_market_tab():
         st.error("히트맵을 그릴 데이터가 없습니다.")
         return
     with _chart_box():                                   # 화면 차트 공통 상자(표와 같은 테두리)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_dark(fig), width="stretch")
 
     with st.expander("원본 데이터 보기 (등락률 순)"):
         view = table[["종목명", "종목코드", "업종그룹", "현재가", "등락률", "시가총액"]].copy()
@@ -684,7 +709,7 @@ def render_holdings_tab():
         st.error("히트맵을 그릴 데이터가 없습니다.")
         return
     with _chart_box():                                   # 화면 차트 공통 상자(표와 같은 테두리)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_dark(fig), width="stretch")
 
     with st.expander("보유종목 상세"):
         view = table[["종목명", "종목코드", "업종그룹", "수량", "평균매수가", "현재가",
@@ -807,7 +832,7 @@ def password_gate():
 
 def main():
     st.set_page_config(page_title="주식 분석 도구", page_icon="📈", layout="wide")
-    st.html(APP_FONT_CSS)                                   # 본문 11pt(화면 전용 스타일, 자리 차지 없음)
+    st.html(APP_FONT_CSS + APP_THEME_CSS)                   # 본문 11pt·다크 테마 보조 스타일(화면 전용, 자리 차지 없음)
     if not password_gate():
         return
     _t = time.perf_counter()                                                     # [계측]

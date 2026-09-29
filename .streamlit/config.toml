@@ -2,11 +2,19 @@
 # 글꼴 파일은 static/ 에서 내려준다(Streamlit 정적 파일 제공은 앱 옆 static 폴더만 가능 -> fonts/ 와 같은 파일을 복사해 둠).
 # 크기: 제목 h1~h4 = 12pt(16px). 본문·캡션·표 11pt(14.67px)는 app.py 의 APP_FONT_CSS 로 맞춘다
 # (theme.baseFontSize 는 정수 px 이고 버튼·입력창까지 함께 바뀌므로 쓰지 않는다).
+# 앱 화면 색(2026-09-29): 5월 버전(AI STOCK ANALYZER)과 같은 다크 네이비. 캡션색·테두리 박스 모서리·격자무늬는 app.py 의 APP_THEME_CSS.
 
 [server]
 enableStaticServing = true
 
 [theme]
+base = "dark"
+backgroundColor = "#0A0E1A"             # 페이지 바탕
+secondaryBackgroundColor = "#111827"    # 사이드바·입력창·카드
+primaryColor = "#4F86F7"                # 선택된 버튼·강조
+textColor = "#E6E9F0"
+borderColor = "#1E293B"
+dataframeBorderColor = "#1E293B"
 font = "Noto Sans KR"
 headingFont = "Noto Sans KR"
 headingFontSizes = ["16px", "16px", "16px", "16px"]
