@@ -64,27 +64,42 @@ button [data-testid="stMarkdownContainer"] p,
 div[data-testid="stMetricValue"] {{ font-size: {APP_METRIC_PX}; }}
 </style>"""
 
-# 앱 화면 색(2026-09-29, 다크 네이비 = 5월 버전 AI STOCK ANALYZER). 기본 색은 .streamlit/config.toml [theme].
-# 여기서는 캡션(보조 글자) 색, 테두리 박스·표 모서리 12px, 페이지 바탕의 옅은 격자무늬(흰색 3%, 48px)만 맞춘다.
-APP_TEXT_COLOR = "#E6E9F0"
-APP_MUTED_COLOR = "#8A94A8"
-APP_BORDER_COLOR = "#1E293B"
+# 앱 화면 색(2026-09-29, 네이비 + 대비 보강). 기본 색은 .streamlit/config.toml [theme].
+# 여기서는 카드(테두리 상자) 배경·테두리·모서리, 보조 글자, 방향 지시계 강조색, metric 색, 소제목 막대를 맞춘다.
+APP_TEXT_COLOR = "#F1F4F9"
+APP_MUTED_COLOR = "#9AA4B8"
+APP_CARD_BG = "#162033"
+APP_BORDER_COLOR = "#2B3A55"
+APP_ACCENT = "#4F86F7"
+APP_HIGHLIGHT = "#F5B544"       # 방향 지시계 판정·종합 상태
+APP_UP = "#FF5A5F"              # 상승(국내 관례 빨강)
+APP_DOWN = "#4F9BFF"            # 하락(파랑)
 APP_THEME_CSS = f"""<style>
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {{ color: {APP_MUTED_COLOR}; }}
-[data-testid="stVerticalBlock"], [data-testid="stDataFrameResizable"] {{ border-radius: 12px; }}
-[data-testid="stApp"] {{
-  background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-  background-size: 48px 48px;
-}}
+[class*="st-key-card_"] {{ background: {APP_CARD_BG}; border-color: {APP_BORDER_COLOR} !important; border-radius: 12px; }}
+[data-testid="stDataFrameResizable"] {{ border-color: {APP_BORDER_COLOR}; border-radius: 12px !important; }}
+.st-key-card_direction h3, .st-key-card_direction .dir-overall {{ color: {APP_HIGHLIGHT}; }}
+div[data-testid="stMetricValue"] {{ color: {APP_TEXT_COLOR}; }}
+[data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Up"]) {{ color: {APP_UP}; background-color: rgba(255, 90, 95, 0.16); }}
+[data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Down"]) {{ color: {APP_DOWN}; background-color: rgba(79, 155, 255, 0.16); }}
+[data-testid="stHeading"] h3 {{ border-left: 3px solid {APP_ACCENT}; padding-left: 10px; }}
 </style>"""
 
 
 def _dark(fig):
     """plotly 그림의 화면 표시용 복사본: 바탕 투명 + 글자 밝게(다크 테마). 원본(리포트 이미지 경로)은 건드리지 않는다.
-    히트맵 칸 색·데이터 색은 그대로 둔다."""
+    히트맵 칸 색은 그대로. 가격 차트는 화면 색(상승 #FF5A5F·하락 #4F9BFF, 20·60일 이동평균 #F5B544·#4F86F7)으로 바꾼다."""
     fig = go.Figure(fig)
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_color=APP_TEXT_COLOR)
+    swap = {charts.COLOR_UP: APP_UP, charts.COLOR_DOWN: APP_DOWN}
+    for tr in fig.data:
+        if tr.type == "candlestick":
+            tr.increasing.line.color = tr.increasing.fillcolor = APP_UP
+            tr.decreasing.line.color = tr.decreasing.fillcolor = APP_DOWN
+        elif tr.type == "bar" and isinstance(tr.marker.color, (list, tuple)):      # 거래량 막대(상승/하락 색 목록)
+            tr.marker.color = [swap.get(c, c) for c in tr.marker.color]
+        elif tr.type == "scatter" and tr.name in ("20일 이동평균", "60일 이동평균"):
+            tr.line.color = APP_HIGHLIGHT if tr.name.startswith("20") else APP_ACCENT
     return fig
 
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
@@ -115,8 +130,11 @@ def _label(text):
 
 
 def _chart_box():
-    """화면 차트 상자: 화면 표(st.dataframe)와 같은 테마 테두리색·1px 실선. 모든 차트를 같은 폭으로 담는다."""
-    return st.container(border=True)
+    """화면 차트 상자: 화면 표(st.dataframe)와 같은 테마 테두리색·1px 실선. 모든 차트를 같은 폭으로 담는다.
+    key(st-key-card_N 클래스)는 카드 배경색(APP_THEME_CSS)을 입히기 위한 것 - 실행마다 0부터 센다."""
+    n = st.session_state.get("_card_n", 0)
+    st.session_state["_card_n"] = n + 1
+    return st.container(border=True, key=f"card_{n}")
 
 
 # 종목 분석 탭 차트 가로 폭(px). matplotlib 그림은 이 크기로 그려 원본 크기로 표시(확대 없음, 좁은 화면에서만 축소).
@@ -298,7 +316,7 @@ def render_direction_box(picked):
     _ts = time.perf_counter()                                                    # [계측]
     box = direction.indicator(ind, fin)
     print(f"[SUB] direction.indicator {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
-    with st.container(border=True):
+    with st.container(border=True, key="card_direction"):     # key: 카드 배경·판정 강조색(APP_THEME_CSS)
         st.markdown(f"**방향 지시계** · 기준일 {ind['기준일']}")
         cols = st.columns(3)
         for col, key in zip(cols, ("가격 추세", "실적 흐름", "거래 관심도")):
@@ -306,7 +324,7 @@ def render_direction_box(picked):
             col.caption(key)
             col.markdown(f"### {sig['판정']}")
             col.caption(sig["근거"])
-        st.markdown(f"**종합 상태: {box['종합 상태']}**")
+        st.markdown(f"**<span class='dir-overall'>종합 상태: {box['종합 상태']}</span>**", unsafe_allow_html=True)
         st.caption(f"리포트 구성 지침 {direction.REPORT_GUIDE_VERSION} 규칙으로 파이썬이 판정(AI 미사용)")
     print(f"[STEP] 방향 지시계 {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
@@ -839,6 +857,7 @@ def main():
     dl.RUN_ID = time.strftime("%H%M%S") + f".{int(time.time() * 1000) % 1000:03d}"   # [계측] 실행마다 새 id
     print(f"[SUB] 실행 시작 {dl.sub_tag()}", flush=True)                          # [계측]
     st.session_state[financials.RUN_MEMO_KEY] = {}     # 이번 실행 안에서만 load_financials 결과 재사용(다음 실행엔 새로)
+    st.session_state["_card_n"] = 0                    # 차트 카드 key 번호(실행마다 0부터)
     st.title("📈 주식 분석 도구")
     st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 Claude 해설 리포트를 제공합니다.")
 

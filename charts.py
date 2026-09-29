@@ -516,12 +516,14 @@ APP_TICK_PT = APP_LABEL_PT
 APP_VALUE_PT = APP_LABEL_PT     # 막대 값 라벨(bold)
 APP_BAR_WIDTH = 0.35
 APP_LINE_WIDTH = 1.2
-# 앱 화면 색(2026-09-29, 다크 네이비 테마): 바탕 투명, 축·눈금·글자 #C9D1E0, 격자선 #1E293B.
-# 데이터 색은 그대로 두고, 어두운 바탕에서 안 보이는 색만 밝게 바꾼다:
-#   COLOR_POINT #1F3A5F(현재가 점·글자) -> APP_COLOR_POINT #7EA6FF.  리포트 경로 색은 그대로.
-APP_BG = "none"
+# 앱 화면 색(2026-09-29, 네이비 + 대비 보강): 바탕 #162033(카드와 같은 색), 축·눈금·글자 #C9D1E0, 격자선 #2B3A55,
+# 상승 #FF5A5F / 하락 #4F9BFF. 어두운 바탕에서 안 보이던 COLOR_POINT #1F3A5F(현재가 점·글자) -> #7EA6FF.
+# 리포트 경로 색은 그대로.
+APP_BG = "#162033"
 APP_FG = "#C9D1E0"
-APP_GRID = "#1E293B"
+APP_GRID = "#2B3A55"
+APP_UP = "#FF5A5F"
+APP_DOWN = "#4F9BFF"
 APP_COLOR_POINT = "#7EA6FF"
 
 
@@ -552,10 +554,10 @@ def app_fig(kind):
 
 
 def app_save(plt, fig, path_or_buffer, tight=True):
-    """앱 화면 그림 저장: 크기를 바꾸지 않는다(bbox_inches=None, dpi 100 -> 1100px 그대로). 바탕은 투명(다크 테마)."""
+    """앱 화면 그림 저장: 크기를 바꾸지 않는다(bbox_inches=None, dpi 100 -> 1100px 그대로). 바탕은 카드색 APP_BG."""
     if tight:
         fig.tight_layout(pad=0.8)
-    fig.savefig(path_or_buffer, dpi=APP_DPI, bbox_inches=None, facecolor=APP_BG, transparent=True, format="png")
+    fig.savefig(path_or_buffer, dpi=APP_DPI, bbox_inches=None, facecolor=APP_BG, format="png")
     plt.close(fig)
 
 
@@ -584,14 +586,14 @@ def _returns_app(items, path_or_buffer):
     plt, fig, ax = app_fig("returns")
     labels = [label for label, _ in items]
     values = [value for _, value in items]
-    colors = [COLOR_UP if v >= 0 else COLOR_DOWN for v in values]
+    colors = [APP_UP if v >= 0 else APP_DOWN for v in values]
     bars = ax.bar(labels, values, color=colors, width=APP_BAR_WIDTH)
     ax.axhline(0, color="#90A4AE", linewidth=APP_LINE_WIDTH)
     for bar, value in zip(bars, values):
         ax.annotate(f"{value:+.2f}%", (bar.get_x() + bar.get_width() / 2, value),
                     xytext=(0, 4 if value >= 0 else -4), textcoords="offset points",
                     ha="center", va="bottom" if value >= 0 else "top",
-                    fontsize=APP_VALUE_PT, fontweight="bold", color=COLOR_UP if value >= 0 else COLOR_DOWN)
+                    fontsize=APP_VALUE_PT, fontweight="bold", color=APP_UP if value >= 0 else APP_DOWN)
     span = max(abs(v) for v in values) or 1
     ax.set_ylim(min(0, min(values)) - span * 0.25, max(0, max(values)) + span * 0.25)
     ax.set_ylabel("수익률(%)", fontsize=APP_LABEL_PT, color=APP_FG)
