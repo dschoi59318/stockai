@@ -22,6 +22,7 @@ data.py - 종목 목록 / 시세 / 히트맵용 데이터 수집 담당
 import os
 import time
 import pickle
+import threading                                                                 # [계측]
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone, time as dtime
 
@@ -54,6 +55,14 @@ def _session_request_with_timeout(self, *args, **kwargs):
 
 if getattr(requests.Session.request, "__name__", "") != "_session_request_with_timeout":
     requests.Session.request = _session_request_with_timeout
+
+# [계측] [SUB] 줄 꼬리표: 스레드 이름 + 실행 id(스크립트 재실행 구분). RUN_ID 는 app.main 이 실행마다 바꾼다.
+RUN_ID = "-"
+
+
+def sub_tag():
+    """[계측] '[SUB] ...' 줄 끝에 붙일 'thread=… run=…' 문자열."""
+    return f"thread={threading.current_thread().name} run={RUN_ID}"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -311,10 +320,13 @@ def fetch_ohlcv_raw(code, start_date, end_date):
     """
     _t = time.perf_counter()                                                     # [계측]
     for loader in (_ohlcv_pykrx, _ohlcv_fdr):
+        _ts = time.perf_counter()                                                # [계측]
         try:
             raw = loader(code, start_date, end_date)
         except Exception:
             raw = None
+        print(f"[SUB] {'pykrx.get_market_ohlcv' if loader is _ohlcv_pykrx else 'fdr.DataReader'} {code} "
+              f"{time.perf_counter() - _ts:.2f}s {sub_tag()}", flush=True)       # [계측]
         if raw is not None and not raw.empty:
             df = raw.copy()
             df.index = pd.to_datetime(df.index)
@@ -546,13 +558,18 @@ def load_ohlcv_bulk(codes, progress_cb=None):
     반환: {종목코드: 일봉 DataFrame}
     """
     codes = [str(c).zfill(6) for c in codes]
+    _ts = time.perf_counter()                                                    # [계측]
     store = _load_day_cache()
+    print(f"[SUB] 캐시읽기 ohlcv_close.pkl ({len(store)}종목) {time.perf_counter() - _ts:.2f}s {sub_tag()}",
+          flush=True)                                                            # [계측]
 
     todo = [c for c in codes if c not in store]
     if not todo:
         if progress_cb:
             progress_cb(1.0, "캐시 재사용 " + str(len(codes)) + "종목")
         return {c: store[c] for c in codes if c in store}
+    print(f"[SUB] load_ohlcv_bulk 새로 받을 종목 {len(todo)}/{len(codes)} {sub_tag()}", flush=True)  # [계측]
+    _tb = time.perf_counter()                                                    # [계측]
 
     end_date = datetime.combine(session_cutoff(), dtime(23, 59))
     start_date = end_date - timedelta(days=400)     # 1년 + 여유
@@ -562,7 +579,9 @@ def load_ohlcv_bulk(codes, progress_cb=None):
 
         너무 빠르게 연속 요청하면 거래소가 응답을 끊으므로 요청 사이에 잠깐 쉰다.
         """
+        _tz = time.perf_counter()                                                # [계측]
         time.sleep(REQUEST_DELAY)
+        print(f"[SUB] time.sleep(REQUEST_DELAY) {code} {time.perf_counter() - _tz:.2f}s {sub_tag()}", flush=True)  # [계측]
         try:
             return code, fetch_ohlcv_raw(code, start_date, end_date)
         except Exception:
@@ -576,8 +595,12 @@ def load_ohlcv_bulk(codes, progress_cb=None):
             done += 1
             if progress_cb and (done % 5 == 0 or done == len(todo)):
                 progress_cb(done / len(todo), "일봉 수집 " + str(done) + "/" + str(len(todo)) + "종목")
+    print(f"[SUB] load_ohlcv_bulk 병렬수집 {len(todo)}종목 {time.perf_counter() - _tb:.2f}s {sub_tag()}", flush=True)  # [계측]
 
+    _ts = time.perf_counter()                                                    # [계측]
     _save_day_cache(store)
+    print(f"[SUB] 캐시쓰기 ohlcv_close.pkl ({len(store)}종목) {time.perf_counter() - _ts:.2f}s {sub_tag()}",
+          flush=True)                                                            # [계측]
     return {c: store[c] for c in codes if c in store}
 
 

@@ -234,16 +234,25 @@ def render_direction_box(picked):
     _t = time.perf_counter()                                                     # [계측] 지표·재무 조회 포함
     code = str(picked["종목코드"])
     ind = indicators.compute(code, picked["종목명"], picked["시장"])
+    print(f"[SUB] indicators.compute(호출, st 캐시 대기 포함) {code} {time.perf_counter() - _t:.2f}s {dl.sub_tag()}",
+          flush=True)                                                            # [계측]
     if ind is None:
         print(f"[STEP] 방향 지시계(지표 없음) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return
     fin = None
+    _ts = time.perf_counter()                                                    # [계측]
     if keys.has_dart_key():
+        print(f"[SUB] keys.has_dart_key {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
+        _ts = time.perf_counter()                                                # [계측]
         try:
             fin = financials.load_financials(code, picked["종목명"])
         except Exception:
             fin = None
+        print(f"[SUB] load_financials(방향 지시계) {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}",
+              flush=True)                                                        # [계측]
+    _ts = time.perf_counter()                                                    # [계측]
     box = direction.indicator(ind, fin)
+    print(f"[SUB] direction.indicator {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
     with st.container(border=True):
         st.markdown(f"**방향 지시계** · 기준일 {ind['기준일']}")
         cols = st.columns(3)
@@ -781,6 +790,8 @@ def main():
     if not password_gate():
         return
     _t = time.perf_counter()                                                     # [계측]
+    dl.RUN_ID = time.strftime("%H%M%S") + f".{int(time.time() * 1000) % 1000:03d}"   # [계측] 실행마다 새 id
+    print(f"[SUB] 실행 시작 {dl.sub_tag()}", flush=True)                          # [계측]
     st.title("📈 주식 분석 도구")
     st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 Claude 해설 리포트를 제공합니다.")
 

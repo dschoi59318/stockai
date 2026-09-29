@@ -117,6 +117,12 @@ CTRL_NAME_KEYS = ("지배기업 소유주지분", "지배기업의 소유주에�
 EOK = 100_000_000           # 1억 원
 
 
+def _sub_tag():
+    """[계측] data.sub_tag() (스레드·실행 id)."""
+    import data
+    return data.sub_tag()
+
+
 def _ensure_dir():
     os.makedirs(FIN_CACHE_DIR, exist_ok=True)
 
@@ -134,34 +140,48 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
     """
     _ensure_dir()
     path = _cache_path(code, reprt, year, fs_div)
+    _tag = f"{str(code).zfill(6)} {year} {reprt}{' ' + fs_div if fs_div else ''}"         # [계측]
     if not refresh and os.path.exists(path):
+        _ts = time.perf_counter()                                                # [계측]
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
+        finally:                                                                 # [계측]
+            print(f"[SUB] 캐시읽기 fin {_tag} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)
 
+    _ts = time.perf_counter()                                                    # [계측]
     api_key = keys.get_dart_api_key()
+    print(f"[SUB] 키조회 DART {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)   # [계측] 값은 찍지 않는다
     if not api_key or not corp_code:
+        print(f"[SUB] fetch_report 건너뜀(키 또는 corp_code 없음) {_tag} {_sub_tag()}", flush=True)  # [계측]
         return None
     params = {"crtfc_key": api_key, "corp_code": corp_code,
               "bsns_year": str(year), "reprt_code": reprt}
     if fs_div:
         params["fs_div"] = fs_div
+    _ts = time.perf_counter()                                                    # [계측]
     try:
         res = requests.get(DART_ALL_URL if fs_div else DART_URL, params=params, timeout=REQUEST_TIMEOUT)
         body = res.json()
-    except Exception:
+    except Exception as _exc:
+        print(f"[SUB] DART {_tag} 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+              flush=True)                                                        # [계측]
         return None
+    print(f"[SUB] DART {_tag} status={body.get('status')} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+          flush=True)                                                            # [계측]
 
     if body.get("status") != "000":      # 013 = 조회된 데이터 없음 등
         return None
 
+    _ts = time.perf_counter()                                                    # [계측]
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(body, f, ensure_ascii=False)
     except Exception:
         pass
+    print(f"[SUB] 캐시쓰기 fin {_tag} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)   # [계측]
     return body
 
 
@@ -723,18 +743,24 @@ def market_cap(code):
     반환: {"합계": 원, "보통주": 원, "우선주": [(종목명, 원), ...]}
     """
     import data as dl
+    _ts = time.perf_counter()                                                    # [계측] st 캐시 대기(락) 포함
     snapshot = dl.load_market_snapshot()
+    print(f"[SUB] load_market_snapshot(market_cap) {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     if snapshot.empty:
         return None
     hit = snapshot[snapshot["종목코드"] == str(code).zfill(6)]
     if hit.empty:
         return None
+    _ts = time.perf_counter()                                                    # [계측]
     common = _cap_at_base(dl, hit.iloc[0])
+    print(f"[SUB] _cap_at_base 보통주 {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     if common is None:
         return None
     prefs = []
     for _, r in find_preferred(snapshot, code).iterrows():
+        _ts = time.perf_counter()                                                # [계측]
         value = _cap_at_base(dl, r)
+        print(f"[SUB] _cap_at_base 우선주 {r['종목코드']} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
         if value is not None:
             prefs.append((r["종목명"], value))
     return {"합계": common + sum(v for _, v in prefs), "보통주": common, "우선주": prefs}
@@ -762,25 +788,36 @@ def load_season_years(code, refresh=False, today=None):
 def load_financials(code, name="", refresh=False):
     """연간·분기 재무와 비율을 한 번에 만들어 돌려준다."""
     _t = time.perf_counter()                                                     # [계측]
+    print(f"[SUB] load_financials 시작 {str(code).zfill(6)} {_sub_tag()}", flush=True)   # [계측]
     annual = load_annual(code, refresh)
+    print(f"[SUB] load_annual {str(code).zfill(6)} {time.perf_counter() - _t:.2f}s {_sub_tag()}", flush=True)  # [계측]
+    _ts = time.perf_counter()                                                    # [계측]
     # 8개 분기: 최근 4분기(표·비율) + 직전 4분기(매출 증감 비교용). 지배주주 값은 최근 4분기만 찾는다.
     quarterly = load_quarterly(code, 8, refresh, ctrl_recent=4)
+    print(f"[SUB] load_quarterly {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     all_quarters = quarterly.get("분기별") or []
     recent_keys = {f"{y}Q{q}" for y, q in recent_quarters(4)}
     prior_keys = {f"{y}Q{q}" for y, q in recent_quarters(8)} - recent_keys
     recent = [x for x in all_quarters if x["분기"] in recent_keys]     # 빠진 분기가 있으면 4개 미만
     prior = [x for x in all_quarters if x["분기"] in prior_keys]
 
+    _ts = time.perf_counter()                                                    # [계측]
     cap = market_cap(code)
+    print(f"[SUB] market_cap {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
+    _ts = time.perf_counter()                                                    # [계측]
     year_ago = load_year_ago_equity(code, recent[-1]["분기"], refresh) if recent else None
+    print(f"[SUB] load_year_ago_equity {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     ratios = compute_ratios(annual, {"분기별": recent}, cap["합계"] if cap else None, year_ago)
     ratios["우선주"] = cap["우선주"] if cap else []
 
     label = annual.get("연결구분") or quarterly.get("연결구분")
+    _ts = time.perf_counter()                                                    # [계측] st 캐시 대기(락) 포함
     try:
         season = load_season_years(code, refresh)
     except Exception:
         season = {}
+    print(f"[SUB] load_season_years(호출) {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+          flush=True)                                                            # [계측]
     print(f"[STEP] 재무 {str(code).zfill(6)} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측] 계절성 포함
     return {
         "종목코드": str(code).zfill(6),

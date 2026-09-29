@@ -172,17 +172,22 @@ def _industry_snapshot(base_date):
 
     path = os.path.join(dl.CACHE_DIR, f"industry_snapshot_{base_date.strftime('%Y%m%d')}.csv")
     if os.path.exists(path):
+        _ts = time.perf_counter()                                                # [계측]
         try:
             return pd.read_csv(path, dtype={"종목코드": str}, encoding="utf-8-sig")
         except Exception:
             pass
+        finally:                                                                 # [계측]
+            print(f"[SUB] 캐시읽기 industry_snapshot {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)
     imap = industry.load_industry_map()
     if not imap.empty:
+        _ts = time.perf_counter()                                                # [계측]
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             imap.to_csv(path, index=False, encoding="utf-8-sig")
         except Exception:
             pass
+        print(f"[SUB] 캐시쓰기 industry_snapshot {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
     return imap
 
 
@@ -198,7 +203,9 @@ def _industry_block(code, name="", base_date=None):
     import industry
 
     # 매핑에 없는 종목이면 DART를 1회 호출해 업종을 채우고 CSV에 저장한다.
+    _ts = time.perf_counter()                                                    # [계측]
     group = industry.ensure_industry(code, name)
+    print(f"[SUB] ensure_industry {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
     if group == industry.ETC:
         return {"가능": False, "사유": "업종 비교 불가 (업종 정보를 확인할 수 없음)", "업종그룹": group}
 
@@ -209,7 +216,10 @@ def _industry_block(code, name="", base_date=None):
 
     imap["종목코드"] = imap["종목코드"].astype(str).str.zfill(6)
     peer_codes = imap[(imap["업종그룹"] == group) & (imap["종목코드"] != str(code).zfill(6))]["종목코드"].tolist()
+    _ts = time.perf_counter()                                                    # [계측]
     store = dl.load_ohlcv_bulk(peer_codes) if peer_codes else {}
+    print(f"[SUB] load_ohlcv_bulk(업종 {group} 비교 {len(peer_codes)}종목) {time.perf_counter() - _ts:.2f}s "
+          f"{dl.sub_tag()}", flush=True)                                         # [계측]
 
     rates = []
     for peer_code in peer_codes:
@@ -312,7 +322,9 @@ def compute(code, name="", market=""):
     """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None."""
     _t = time.perf_counter()                                                     # [계측] st 캐시가 없을 때만 찍힌다
     code = str(code).zfill(6)
+    print(f"[SUB] indicators.compute 시작(st 캐시 없음) {code} {dl.sub_tag()}", flush=True)  # [계측]
     df = _fetch(code)
+    print(f"[SUB] _fetch(시세 1년) {code} {time.perf_counter() - _t:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
     if df is None or df.empty or len(df) < 25:
         print(f"[STEP] indicators.compute(없음) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return None
@@ -323,7 +335,9 @@ def compute(code, name="", market=""):
     returns = _period_returns(df)
     volume = _volume_block(df)
     week52 = _week52_block(df)
+    _ts = time.perf_counter()                                                    # [계측]
     industry_block = _industry_block(code, name, df.index[-1])
+    print(f"[SUB] _industry_block {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
 
     result = {
         "종목명": name,
@@ -355,7 +369,9 @@ def compute(code, name="", market=""):
 
     # [4-2단계] 재무 블록 (DART). 재무 사실 문장은 블록 안의 '사실'에 따로 둔다.
     import financials
+    _ts = time.perf_counter()                                                    # [계측]
     result["재무"] = financials.ai_block(code, name, industry_block.get("업종그룹"))
+    print(f"[SUB] financials.ai_block {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
 
     # 관찰 지표 후보: 표현을 고정한 완성 문자열. AI는 이 중에서만 고른다(PER·PBR은 후보에서 뺀다).
     result["관찰지표후보"] = _watch_candidates(result)

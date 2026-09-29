@@ -87,6 +87,12 @@ def ksic_to_group(induty_code):
 # 1) 종목코드 -> DART corp_code 매핑 (corpCode.xml, 30일 캐시)
 # ---------------------------------------------------------------------------
 
+def _sub_tag():
+    """[계측] data.sub_tag() (스레드·실행 id)."""
+    import data
+    return data.sub_tag()
+
+
 def load_corp_code_map(force=False):
     """DART corpCode.xml(zip)을 받아 {종목코드: corp_code} 딕셔너리를 만든다(30일 캐시)."""
     _ensure_dirs()
@@ -95,11 +101,15 @@ def load_corp_code_map(force=False):
     if not force and os.path.exists(CORPCODE_PKL):
         age_days = (time.time() - os.path.getmtime(CORPCODE_PKL)) / 86400
         if age_days < CORPCODE_TTL_DAYS:
+            _ts = time.perf_counter()                                            # [계측]
             try:
                 with open(CORPCODE_PKL, "rb") as f:
                     return pickle.load(f)
             except Exception:
                 pass
+            finally:                                                             # [계측]
+                print(f"[SUB] 캐시읽기 corpcode.pkl {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)
+    print(f"[SUB] corpCode 캐시 없음/만료 -> 다운로드 {_sub_tag()}", flush=True)  # [계측]
 
     api_key = keys.get_dart_api_key()
     if not api_key:
@@ -216,30 +226,42 @@ def ensure_industry(code, name=""):
     조회에 실패하면 저장하지 않고 '기타'를 돌려줘, 나중에 다시 시도할 수 있게 둔다.
     """
     code = str(code).zfill(6)
+    _ts = time.perf_counter()                                                    # [계측]
     imap = load_industry_map()
+    print(f"[SUB] 캐시읽기 industry_map.csv {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     hit = imap[imap["종목코드"] == code] if not imap.empty else imap
     if not imap.empty and not hit.empty:
         return str(hit.iloc[0]["업종그룹"])
 
     api_key = keys.get_dart_api_key()
     if not api_key:
+        print(f"[SUB] ensure_industry 키 없음 {code} {_sub_tag()}", flush=True)  # [계측]
         return ETC
 
+    _ts = time.perf_counter()                                                    # [계측]
     try:
         corp_map = load_corp_code_map()
-    except Exception:
+    except Exception as _exc:
+        print(f"[SUB] load_corp_code_map 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+              flush=True)                                                        # [계측]
         return ETC
+    print(f"[SUB] load_corp_code_map {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
 
     corp_code = corp_map.get(code)
     if not corp_code:                       # 우선주·리츠 등 DART 기업개황에 없는 종목
         return ETC
 
+    _ts = time.perf_counter()                                                    # [계측]
     induty = fetch_induty_code(corp_code, api_key)
+    print(f"[SUB] DART company.json {code} {'ok' if induty else '없음'} {time.perf_counter() - _ts:.2f}s "
+          f"{_sub_tag()}", flush=True)                                           # [계측]
     if not induty:
         return ETC
 
     group = ksic_to_group(induty)
+    _ts = time.perf_counter()                                                    # [계측]
     _append_row(code, name or code, induty, group)
+    print(f"[SUB] 캐시쓰기 industry_map.csv {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     return group
 
 
