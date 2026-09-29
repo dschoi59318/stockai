@@ -726,10 +726,7 @@ def render_sidebar():
     if st.sidebar.button("재무 새로고침", disabled=picked is None,
                          help="선택 종목의 DART 재무 캐시를 지우고 다시 수집합니다"):
         removed = financials.clear_cache(picked["종목코드"])
-        # load_financials 는 st 캐시 함수가 아니다(.clear() 없음 -> 예전에는 AttributeError).
-        # 재무 값을 들고 있는 st 캐시(지표 안의 재무 블록, 계절성 연도)를 비운다.
-        indicators.compute.clear()
-        financials.load_season_years.clear()
+        financials.load_financials.clear()
         st.sidebar.success(f"재무 캐시 {removed}개를 지웠습니다. 다시 수집합니다.")
 
     st.sidebar.divider()

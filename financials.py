@@ -155,8 +155,6 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
 
     if body.get("status") != "000":      # 013 = 조회된 데이터 없음 등
         return None
-    if not body.get("list"):             # 000 이어도 행이 없으면 저장하지 않는다(다음에 다시 받는다)
-        return body
 
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -741,13 +739,6 @@ def market_cap(code):
     return {"합계": common + sum(v for _, v in prefs), "보통주": common, "우선주": prefs}
 
 
-class _NoCache(Exception):
-    """st.cache_data 함수가 실패 결과를 캐시하지 않게 올리는 예외. value = 호출한 쪽에 돌려줄 기존 결과."""
-    def __init__(self, value):
-        super().__init__("실패 결과는 캐시하지 않음")
-        self.value = value
-
-
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def load_season_years(code, refresh=False, today=None):
     """계절성 판정용(리포트 구성 지침 v1.4 5.10): 직전 완결된 2개 사업연도의 분기별(3개월) 매출·영업이익.
@@ -755,7 +746,6 @@ def load_season_years(code, refresh=False, today=None):
     완결 연도 = 사업보고서까지 공시된 가장 최근 연도(latest_annual_year)와 그 전 해.
     load_quarterly를 '그 해 4분기가 가장 최근 공시 분기인 날짜'로 불러 1~4분기를 받는다(지배주주 값은 찾지 않는다).
     반환: {연도: [1~4분기 dict(오래된 분기부터)]}
-    한 해라도 4개 분기를 다 받지 못하면 결과를 캐시하지 않는다(_NoCache 로 올리고 load_financials 가 받는다).
     """
     last = latest_annual_year(today)
     out = {}
@@ -763,8 +753,6 @@ def load_season_years(code, refresh=False, today=None):
         month, day = QUARTER_READY[4]
         quarters = load_quarterly(code, 4, refresh, today=datetime(year + 1, month, day), ctrl_recent=0)
         out[year] = [x for x in (quarters.get("분기별") or []) if x["분기"].startswith(str(year))]
-    if any(len(v) < 4 for v in out.values()):
-        raise _NoCache(out)
     return out
 
 
@@ -787,8 +775,6 @@ def load_financials(code, name="", refresh=False):
     label = annual.get("연결구분") or quarterly.get("연결구분")
     try:
         season = load_season_years(code, refresh)
-    except _NoCache as miss:                 # 덜 받은 결과: 이번에는 그대로 쓰고 캐시하지 않는다
-        season = miss.value
     except Exception:
         season = {}
     return {

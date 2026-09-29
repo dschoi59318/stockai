@@ -185,7 +185,7 @@ def _industry_snapshot(base_date):
     return imap
 
 
-def _industry_block(code, name="", base_date=None, status=None):
+def _industry_block(code, name="", base_date=None):
     """같은 업종그룹 종목들의 1개월 평균 수익률과 비교한다.
 
     [표본 고정] 기준일 시점 업종 매핑 스냅샷의 같은 업종 종목 '전부'를 표본으로 쓴다.
@@ -197,7 +197,7 @@ def _industry_block(code, name="", base_date=None, status=None):
     import industry
 
     # 매핑에 없는 종목이면 DART를 1회 호출해 업종을 채우고 CSV에 저장한다.
-    group = industry.ensure_industry(code, name, status=status)
+    group = industry.ensure_industry(code, name)
     if group == industry.ETC:
         return {"가능": False, "사유": "업종 비교 불가 (업종 정보를 확인할 수 없음)", "업종그룹": group}
 
@@ -306,38 +306,13 @@ def _build_facts(last, ma, returns, day_rate, volume, week52, industry_block):
     return [f for f in facts if f]
 
 
-class _NoCache(Exception):
-    """st.cache_data 함수가 실패 결과를 캐시하지 않게 올리는 예외. value = 호출한 쪽에 돌려줄 기존 결과."""
-    def __init__(self, value):
-        super().__init__("실패 결과는 캐시하지 않음")
-        self.value = value
-
-
-# 재무 블록(financials.ai_block)의 '일시 실패' 사유. 이 사유면 compute 결과를 캐시하지 않는다.
-# (데이터부족 등 공시 자체가 모자란 사유는 정상 결과로 보고 캐시한다)
-FIN_FAIL_PREFIXES = ("DART API 키가 없어", "재무 데이터 수집 실패", "DART에 재무 데이터가 없음")
-
-
-def compute(code, name="", market=""):
-    """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None.
-
-    시세를 받지 못했거나 재무·업종 수집이 일시 실패한 결과는 캐시하지 않는다(다음 호출 때 다시 계산).
-    반환 값은 캐시 여부와 관계없이 기존과 같다.
-    """
-    try:
-        return _compute_cached(code, name, market)
-    except _NoCache as miss:
-        return miss.value
-
-
 @st.cache_data(ttl=60 * 30, show_spinner=False)
-def _compute_cached(code, name="", market=""):
+def compute(code, name="", market=""):
+    """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None."""
     code = str(code).zfill(6)
     df = _fetch(code)
-    if df is None or df.empty:
-        raise _NoCache(None)                  # 시세 수집 실패는 캐시하지 않는다
-    if len(df) < 25:
-        return None                           # 상장 직후 등 데이터가 짧은 종목(정상 결과)
+    if df is None or df.empty or len(df) < 25:
+        return None
 
     last = _won(df["종가"].iloc[-1])
     day_rate = _pct(dl.period_change_rate(df, 1) or 0.0)
@@ -345,8 +320,7 @@ def _compute_cached(code, name="", market=""):
     returns = _period_returns(df)
     volume = _volume_block(df)
     week52 = _week52_block(df)
-    industry_status = {}
-    industry_block = _industry_block(code, name, df.index[-1], status=industry_status)
+    industry_block = _industry_block(code, name, df.index[-1])
 
     result = {
         "종목명": name,
@@ -382,15 +356,7 @@ def _compute_cached(code, name="", market=""):
 
     # 관찰 지표 후보: 표현을 고정한 완성 문자열. AI는 이 중에서만 고른다(PER·PBR은 후보에서 뺀다).
     result["관찰지표후보"] = _watch_candidates(result)
-
-    fin_block = result["재무"] or {}
-    fin_failed = not fin_block.get("가능") and str(fin_block.get("사유", "")).startswith(FIN_FAIL_PREFIXES)
-    if fin_failed or industry_status.get("실패"):
-        raise _NoCache(result)                # 이번 결과는 그대로 쓰되 캐시하지 않는다
     return result
-
-
-compute.clear = _compute_cached.clear        # 기존 호출(compute.clear())이 그대로 동작하게
 
 
 def _watch_candidates(ind):

@@ -125,8 +125,6 @@ def load_corp_code_map(force=False):
         corp_code = (item.findtext("corp_code") or "").strip()
         if len(stock_code) == 6 and corp_code:   # 상장사만 남긴다
             mapping[stock_code] = corp_code
-    if not mapping:                              # 빈 매핑은 저장하지 않는다(30일 동안 빈 결과가 남지 않게)
-        raise RuntimeError("DART corpCode 응답에 상장사 고유번호가 없습니다.")
 
     with open(CORPCODE_PKL, "wb") as f:
         pickle.dump(mapping, f)
@@ -168,7 +166,7 @@ def build_industry_map(target_df, progress_cb=None):
     corp_map = load_corp_code_map()
     session = requests.Session()
 
-    rows, failed = [], set()
+    rows = []
     total = len(target_df)
     for i, (_, row) in enumerate(target_df.iterrows(), start=1):
         code = str(row["종목코드"]).zfill(6)
@@ -176,8 +174,6 @@ def build_industry_map(target_df, progress_cb=None):
         corp_code = corp_map.get(code)
 
         induty = fetch_induty_code(corp_code, api_key, session) if corp_code else None
-        if corp_code and not induty:    # 기업개황 호출 실패(고유번호가 없는 종목은 실패가 아니다)
-            failed.add(code)
         rows.append({
             "종목코드": code,
             "종목명": name,
@@ -190,13 +186,7 @@ def build_industry_map(target_df, progress_cb=None):
         time.sleep(DART_SLEEP)          # 초당 5건 제한
 
     result = pd.DataFrame(rows)
-    # 파일에는 성공한 줄만 새로 쓴다. 호출에 실패한 종목은 기존 줄을 그대로 두고(없으면 빼서) 다음에 다시 받게 한다.
-    saved = result[~result["종목코드"].isin(failed)]
-    if failed:
-        current = load_industry_map()
-        keep = current[current["종목코드"].isin(failed)] if not current.empty else current
-        saved = pd.concat([saved, keep[saved.columns.intersection(keep.columns)]], ignore_index=True)
-    saved.to_csv(INDUSTRY_CSV, index=False, encoding="utf-8-sig")
+    result.to_csv(INDUSTRY_CSV, index=False, encoding="utf-8-sig")
     return result
 
 
@@ -216,16 +206,13 @@ def _append_row(code, name, ksic, group):
     return merged
 
 
-def ensure_industry(code, name="", status=None):
+def ensure_industry(code, name=""):
     """종목의 업종그룹을 돌려준다.
 
     industry_map.csv에 없으면 DART 기업개황을 '그 종목만' 1회 호출해 업종을 구하고
     CSV에 추가 저장한다(다음부터는 호출 없이 재사용).
     조회에 실패하면 저장하지 않고 '기타'를 돌려줘, 나중에 다시 시도할 수 있게 둔다.
-    status(dict)를 주면 일시 실패(키 없음·corpCode 실패·기업개황 호출 실패)일 때 status["실패"]=True 로 알린다
-    (고유번호가 없는 종목의 '기타'는 실패가 아니다). indicators.compute 가 이 결과를 캐시할지 정하는 데 쓴다.
     """
-    status = status if status is not None else {}
     code = str(code).zfill(6)
     imap = load_industry_map()
     hit = imap[imap["종목코드"] == code] if not imap.empty else imap
@@ -234,13 +221,11 @@ def ensure_industry(code, name="", status=None):
 
     api_key = keys.get_dart_api_key()
     if not api_key:
-        status["실패"] = True
         return ETC
 
     try:
         corp_map = load_corp_code_map()
     except Exception:
-        status["실패"] = True
         return ETC
 
     corp_code = corp_map.get(code)
@@ -249,7 +234,6 @@ def ensure_industry(code, name="", status=None):
 
     induty = fetch_induty_code(corp_code, api_key)
     if not induty:
-        status["실패"] = True
         return ETC
 
     group = ksic_to_group(induty)
