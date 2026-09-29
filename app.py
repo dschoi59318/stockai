@@ -43,6 +43,9 @@ import report
 
 MARKET_LABELS = {"코스피": "KOSPI", "코스닥": "KOSDAQ"}
 
+# 본문 화면 선택(예전 st.tabs 와 같은 라벨·순서). 고른 화면만 실행한다.
+VIEWS = ["종목 분석", "시장 히트맵", "보유종목 히트맵"]
+
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
 PRICE_CAPTION = ("가격·등락률은 정규장 종가 기준 (시간외 거래 미반영) · "
                  "15:40 이전에는 당일 장중 시세를 쓰지 않고 직전 거래일 종가를 기준일로 씀")
@@ -801,14 +804,17 @@ def main():
 
     picked, period_label = render_sidebar()
 
-    tab1, tab2, tab3 = st.tabs(["종목 분석", "시장 히트맵", "보유종목 히트맵"])
-    with tab1:
-        render_stock_tab(picked, period_label)
-    with tab2:
+    # st.tabs 는 고르지 않은 탭까지 매번 실행한다(시장 히트맵 200종목 수집이 종목 분석을 막음).
+    # 고른 화면의 코드만 실행한다. 라벨·순서·내용은 예전 탭과 같다. required=True 라 선택 해제가 없다.
+    view = st.segmented_control("화면", VIEWS, default=VIEWS[0], required=True, key="main_view",
+                                label_visibility="collapsed")
+    if view == "시장 히트맵":
         render_market_tab()
-    with tab3:
+    elif view == "보유종목 히트맵":
         render_holdings_tab()
-    print(f"[STEP] 화면 전체 {picked['종목코드'] if picked is not None else '-'} "
+    else:
+        render_stock_tab(picked, period_label)
+    print(f"[STEP] 화면 전체({view}) {picked['종목코드'] if picked is not None else '-'} "
           f"{time.perf_counter() - _t:.2f}s", flush=True)                        # [계측]
 
 

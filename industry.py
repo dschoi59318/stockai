@@ -28,6 +28,8 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 INDUSTRY_CSV = os.path.join(DATA_DIR, "industry_map.csv")
 INDUSTRY_SAMPLE_CSV = os.path.join(DATA_DIR, "industry_map_sample.csv")
 CORPCODE_PKL = os.path.join(CACHE_DIR, "corpcode.pkl")
+# 저장소에 함께 올리는 상장사 고유번호 표(stock_code, corp_code, corp_name). corpCode.xml 다운로드 없이 먼저 찾는다.
+CORP_CODE_CSV = os.path.join(DATA_DIR, "corp_code_map.csv")
 
 CORPCODE_TTL_DAYS = 30          # corpCode.xml 캐시 유효기간
 DART_SLEEP = 0.2                # 초당 5건 이하 (0.2초 간격)
@@ -91,6 +93,34 @@ def _sub_tag():
     """[계측] data.sub_tag() (스레드·실행 id)."""
     import data
     return data.sub_tag()
+
+
+_corp_csv_map = None                     # corp_code_map.csv 내용(프로세스에서 한 번 읽는다)
+
+
+def _load_corp_csv():
+    """data/corp_code_map.csv -> {stock_code: corp_code}. 파일이 없거나 읽지 못하면 빈 dict."""
+    global _corp_csv_map
+    if _corp_csv_map is None:
+        _ts = time.perf_counter()                                                # [계측]
+        try:
+            df = pd.read_csv(CORP_CODE_CSV, dtype=str, encoding="utf-8-sig")
+            _corp_csv_map = dict(zip(df["stock_code"].str.zfill(6), df["corp_code"].str.zfill(8)))
+        except Exception:
+            _corp_csv_map = {}
+        print(f"[SUB] 캐시읽기 corp_code_map.csv ({len(_corp_csv_map)}사) {time.perf_counter() - _ts:.2f}s "
+              f"{_sub_tag()}", flush=True)                                       # [계측]
+    return _corp_csv_map
+
+
+def corp_code_for(code):
+    """종목코드 -> DART corp_code. corp_code_map.csv 를 먼저 보고, 표에 없는 종목일 때만
+    기존 경로(load_corp_code_map: corpcode.pkl 30일 캐시, 없으면 corpCode.xml 다운로드)를 쓴다. 없으면 None."""
+    code = str(code).zfill(6)
+    hit = _load_corp_csv().get(code)
+    if hit:
+        return hit
+    return load_corp_code_map().get(code)
 
 
 def load_corp_code_map(force=False):
@@ -175,7 +205,6 @@ def build_industry_map(target_df, progress_cb=None):
     if not api_key:
         raise RuntimeError("DART API 키가 없습니다.")
 
-    corp_map = load_corp_code_map()
     session = requests.Session()
 
     rows = []
@@ -183,7 +212,7 @@ def build_industry_map(target_df, progress_cb=None):
     for i, (_, row) in enumerate(target_df.iterrows(), start=1):
         code = str(row["종목코드"]).zfill(6)
         name = row.get("종목명", "")
-        corp_code = corp_map.get(code)
+        corp_code = corp_code_for(code)     # corp_code_map.csv 먼저, 없는 종목만 기존 corpCode 경로
 
         induty = fetch_induty_code(corp_code, api_key, session) if corp_code else None
         rows.append({
@@ -240,14 +269,13 @@ def ensure_industry(code, name=""):
 
     _ts = time.perf_counter()                                                    # [계측]
     try:
-        corp_map = load_corp_code_map()
+        corp_code = corp_code_for(code)     # corp_code_map.csv 먼저, 없으면 기존 corpCode 경로
     except Exception as _exc:
-        print(f"[SUB] load_corp_code_map 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+        print(f"[SUB] corp_code_for 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
               flush=True)                                                        # [계측]
         return ETC
-    print(f"[SUB] load_corp_code_map {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
+    print(f"[SUB] corp_code_for {code} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
 
-    corp_code = corp_map.get(code)
     if not corp_code:                       # 우선주·리츠 등 DART 기업개황에 없는 종목
         return ETC
 

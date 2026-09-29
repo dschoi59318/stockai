@@ -424,10 +424,10 @@ def period_text(quarters):
 # ---------------------------------------------------------------------------
 
 def _corp_code(code):
-    """종목코드 -> DART corp_code."""
+    """종목코드 -> DART corp_code. data/corp_code_map.csv 를 먼저 보고, 없는 종목만 corpCode 경로를 쓴다."""
     import industry
     try:
-        return industry.load_corp_code_map().get(str(code).zfill(6))
+        return industry.corp_code_for(code)
     except Exception:
         return None
 
