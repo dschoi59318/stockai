@@ -58,6 +58,7 @@ financials.py - DART 재무 데이터 수집 (4단계)
 import json
 import os
 import re
+import time                                                                      # [계측]
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -747,17 +748,20 @@ def load_season_years(code, refresh=False, today=None):
     load_quarterly를 '그 해 4분기가 가장 최근 공시 분기인 날짜'로 불러 1~4분기를 받는다(지배주주 값은 찾지 않는다).
     반환: {연도: [1~4분기 dict(오래된 분기부터)]}
     """
+    _t = time.perf_counter()                                                     # [계측] st 캐시가 없을 때만 찍힌다
     last = latest_annual_year(today)
     out = {}
     for year in (last - 1, last):
         month, day = QUARTER_READY[4]
         quarters = load_quarterly(code, 4, refresh, today=datetime(year + 1, month, day), ctrl_recent=0)
         out[year] = [x for x in (quarters.get("분기별") or []) if x["분기"].startswith(str(year))]
+    print(f"[STEP] 계절성 {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     return out
 
 
 def load_financials(code, name="", refresh=False):
     """연간·분기 재무와 비율을 한 번에 만들어 돌려준다."""
+    _t = time.perf_counter()                                                     # [계측]
     annual = load_annual(code, refresh)
     # 8개 분기: 최근 4분기(표·비율) + 직전 4분기(매출 증감 비교용). 지배주주 값은 최근 4분기만 찾는다.
     quarterly = load_quarterly(code, 8, refresh, ctrl_recent=4)
@@ -777,6 +781,7 @@ def load_financials(code, name="", refresh=False):
         season = load_season_years(code, refresh)
     except Exception:
         season = {}
+    print(f"[STEP] 재무 {str(code).zfill(6)} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측] 계절성 포함
     return {
         "종목코드": str(code).zfill(6),
         "종목명": name,

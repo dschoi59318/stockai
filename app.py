@@ -24,6 +24,7 @@ app.py - 주식 분석 도구 (Streamlit 메인 화면)
 import hmac
 import io
 import os
+import time                                                                      # [계측]
 
 import pandas as pd
 import streamlit as st
@@ -162,8 +163,10 @@ def render_financial_section(picked):
     if frame["매출액"].isna().all() and frame["영업이익"].isna().all():
         st.info("차트로 표시할 매출·영업이익 계정이 없습니다.")
     else:
+        _t = time.perf_counter()                                                 # [계측]
         with _chart_box():
             st.plotly_chart(charts.build_fin_chart(frame, sales_name, height=APP_FIN_HEIGHT), width=APP_CHART_WIDTH)
+        print(f"[STEP] 차트 렌더(재무) {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
     st.caption(f"출처: 금융감독원 DART, {fin['연결구분'] or '연결'}재무제표 기준 · 단위 억 원 · "
                f"수집 {fin['수집시각']}")
@@ -204,14 +207,18 @@ def render_easy_section(picked):
         st.markdown(f"**{_label(chapter['제목'])}**")
         figure = chapter.get("그림")
         if figure and figure["종류"] == "범위":
+            _t = time.perf_counter()                                             # [계측]
             with _chart_box():
                 st.image(_png_bytes(lambda buf: charts.save_range_png(figure["최저"], figure["최고"], figure["현재가"],
                                                                        buf, title=figure["제목"], app=True)),
                          width=APP_CHART_WIDTH)
+            print(f"[STEP] 차트 렌더(52주 범위) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         elif figure and figure["종류"] == "수익률" and figure["항목"]:
+            _t = time.perf_counter()                                             # [계측]
             with _chart_box():
                 st.image(_png_bytes(lambda buf: charts.save_returns_png(figure["항목"], buf, app=True)),
                          width=APP_CHART_WIDTH)
+            print(f"[STEP] 차트 렌더(수익률) {code} {time.perf_counter() - _t:.2f}s", flush=True)    # [계측]
         st.write("\n\n".join(chapter["문장"]))
     st.markdown(f"**{_label(easy_read.TABLE_TITLE)}**")
     st.dataframe(pd.DataFrame(result["풀이표"], columns=[_label(c) for c in ("지표", "이 종목 값", "뜻")]),
@@ -224,9 +231,11 @@ def render_easy_section(picked):
 
 def render_direction_box(picked):
     """종목 분석 탭 맨 위: 신호 3개(가격 추세 / 실적 흐름 / 거래 관심도) + 종합 상태(지침 5.1~5.4)."""
+    _t = time.perf_counter()                                                     # [계측] 지표·재무 조회 포함
     code = str(picked["종목코드"])
     ind = indicators.compute(code, picked["종목명"], picked["시장"])
     if ind is None:
+        print(f"[STEP] 방향 지시계(지표 없음) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return
     fin = None
     if keys.has_dart_key():
@@ -245,6 +254,7 @@ def render_direction_box(picked):
             col.caption(sig["근거"])
         st.markdown(f"**종합 상태: {box['종합 상태']}**")
         st.caption(f"리포트 구성 지침 {direction.REPORT_GUIDE_VERSION} 규칙으로 파이썬이 판정(AI 미사용)")
+    print(f"[STEP] 방향 지시계 {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
 
 FACT_GROUP = "사실 문장"          # indicators.to_table 의 AI 입력 근거 행(구분 열 값) - 화면에서 뺀다
@@ -295,9 +305,11 @@ def render_stock_tab(picked, period_label):
     c4.metric("평균 거래량", f"{info['평균거래량']:,.0f}주")
     st.caption(PRICE_CAPTION)
 
+    _t = time.perf_counter()                                                     # [계측]
     with _chart_box():
         st.plotly_chart(charts.build_price_chart(df, f"{picked['종목명']} 일봉 ({period_label})",
                                                  height=APP_PRICE_HEIGHT), width=APP_CHART_WIDTH)
+    print(f"[STEP] 차트 렌더(가격) {picked['종목코드']} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
 
     with st.expander("원본 데이터 보기 (최근 10일)"):
         st.dataframe(df.tail(10).iloc[::-1].style.format("{:,.0f}"), width="stretch")
@@ -768,6 +780,7 @@ def main():
     st.set_page_config(page_title="주식 분석 도구", page_icon="📈", layout="wide")
     if not password_gate():
         return
+    _t = time.perf_counter()                                                     # [계측]
     st.title("📈 주식 분석 도구")
     st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 Claude 해설 리포트를 제공합니다.")
 
@@ -784,6 +797,8 @@ def main():
         render_market_tab()
     with tab3:
         render_holdings_tab()
+    print(f"[STEP] 화면 전체 {picked['종목코드'] if picked is not None else '-'} "
+          f"{time.perf_counter() - _t:.2f}s", flush=True)                        # [계측]
 
 
 if __name__ == "__main__":

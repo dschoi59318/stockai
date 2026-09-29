@@ -44,7 +44,12 @@ _original_session_request = requests.Session.request
 def _session_request_with_timeout(self, *args, **kwargs):
     """requests 세션 요청에 기본 timeout을 끼워 넣는다."""
     kwargs.setdefault("timeout", REQUEST_TIMEOUT)
-    return _original_session_request(self, *args, **kwargs)
+    _t = time.perf_counter()                                                     # [계측]
+    try:
+        return _original_session_request(self, *args, **kwargs)
+    finally:                                                                     # [계측] 호스트+경로만(쿼리·키 제외)
+        print(f"[NET] {str(args[1] if len(args) > 1 else kwargs.get('url', '')).split('?')[0].split('://')[-1]}"
+              f" {time.perf_counter() - _t:.2f}s", flush=True)
 
 
 if getattr(requests.Session.request, "__name__", "") != "_session_request_with_timeout":
@@ -159,7 +164,9 @@ def ensure_stock_master():
     """
     if master_updated_date() == datetime.today().date():
         return {"시도": False, "성공": True, "문구": "", "날짜": master_updated_date()}
+    _t = time.perf_counter()                                                     # [계측]
     ok, message = refresh_stock_master()
+    print(f"[STEP] 종목목록 갱신 - {time.perf_counter() - _t:.2f}s", flush=True)     # [계측]
     return {"시도": True, "성공": ok, "문구": message, "날짜": master_updated_date()}
 
 
@@ -177,7 +184,9 @@ def load_ticker_list():
     반환 컬럼: 종목코드 / 종목명 / 시장. 파일이 없으면 한 번 받아 보고, 그래도 없으면 빈 표.
     """
     if not os.path.exists(STOCK_MASTER_CSV):
+        _t = time.perf_counter()                                                 # [계측]
         refresh_stock_master()
+        print(f"[STEP] 종목목록 - {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     if not os.path.exists(STOCK_MASTER_CSV):
         return pd.DataFrame(columns=["종목코드", "종목명", "시장"])
     try:
@@ -300,6 +309,7 @@ def fetch_ohlcv_raw(code, start_date, end_date):
 
     지침 v1.4 5.0: session_cutoff() 뒤의 일봉(15:40 이전 실행 시 당일 장중 일봉)은 잘라 낸다.
     """
+    _t = time.perf_counter()                                                     # [계측]
     for loader in (_ohlcv_pykrx, _ohlcv_fdr):
         try:
             raw = loader(code, start_date, end_date)
@@ -314,7 +324,9 @@ def fetch_ohlcv_raw(code, start_date, end_date):
             df = df[df["종가"] > 0]
             df = trim_to_session(df)
             if not df.empty:
+                print(f"[STEP] 시세 {code} {time.perf_counter() - _t:.2f}s", flush=True)            # [계측]
                 return df
+    print(f"[STEP] 시세(실패) {code} {time.perf_counter() - _t:.2f}s", flush=True)                # [계측]
     return pd.DataFrame()
 
 
@@ -477,14 +489,17 @@ def get_top_marcap(market, top_n=TOP_N):
     반환 컬럼의 '시가총액'은 순위용 값이다. 히트맵 박스 크기는 build_market_heatmap_data에서
     상장주식수 x 기준일 종가로 다시 계산한다.
     """
+    _t = time.perf_counter()                                                     # [계측]
     snapshot = load_market_snapshot()
     if snapshot.empty:
+        print(f"[STEP] 시총순위(실패) {market} {time.perf_counter() - _t:.2f}s", flush=True)      # [계측]
         return snapshot
     part = snapshot[snapshot["시장"] == market].copy()
     if part["시가총액"].notna().sum() < min(top_n, len(part)) // 2:        # FDR 시가총액이 비었다
         closes = _recent_closes()
         part["시가총액"] = part["상장주식수"] * part["종목코드"].map(closes)
     part = part.dropna(subset=["시가총액"])
+    print(f"[STEP] 시총순위 {market} {time.perf_counter() - _t:.2f}s", flush=True)                # [계측]
     return part.nlargest(top_n, "시가총액").reset_index(drop=True)
 
 
@@ -598,8 +613,10 @@ def build_market_heatmap_data(market, period_label, progress_cb=None):
     """
     import industry
 
+    _t = time.perf_counter()                                                     # [계측]
     top = get_top_marcap(market)
     if top.empty:
+        print(f"[STEP] 히트맵 데이터(실패) {market} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return pd.DataFrame(), ""
 
     days, _clip = HEATMAP_PERIODS.get(period_label, (1, 3.0))
@@ -634,6 +651,7 @@ def build_market_heatmap_data(market, period_label, progress_cb=None):
             "기준일": result["종목코드"].map(dict(zip(top["종목코드"], days_seen))),
         }))
     result = industry.attach_industry(result)       # 업종그룹 컬럼 붙이기
+    print(f"[STEP] 히트맵 데이터 {market}/{period_label} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     return result.reset_index(drop=True), base_date
 
 
@@ -786,6 +804,7 @@ def build_holdings_heatmap_data(holdings):
     if holdings is None or holdings.empty:
         return pd.DataFrame(), {}
 
+    _t = time.perf_counter()                                                     # [계측]
     rows = []
     for _, row in holdings.iterrows():
         code = str(row["종목코드"]).zfill(6)
@@ -826,4 +845,5 @@ def build_holdings_heatmap_data(holdings):
         "당일손익": float(result["당일손익"].sum()),
         "기준일": result["최근일자"].max(),
     }
+    print(f"[STEP] 히트맵 데이터 보유종목 {time.perf_counter() - _t:.2f}s", flush=True)            # [계측]
     return result, summary

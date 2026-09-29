@@ -24,6 +24,7 @@ indicators.py - 개별 종목의 가격 지표 계산
 """
 
 import os
+import time                                                                      # [계측]
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -309,9 +310,11 @@ def _build_facts(last, ma, returns, day_rate, volume, week52, industry_block):
 @st.cache_data(ttl=60 * 30, show_spinner=False)
 def compute(code, name="", market=""):
     """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None."""
+    _t = time.perf_counter()                                                     # [계측] st 캐시가 없을 때만 찍힌다
     code = str(code).zfill(6)
     df = _fetch(code)
     if df is None or df.empty or len(df) < 25:
+        print(f"[STEP] indicators.compute(없음) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return None
 
     last = _won(df["종가"].iloc[-1])
@@ -356,6 +359,7 @@ def compute(code, name="", market=""):
 
     # 관찰 지표 후보: 표현을 고정한 완성 문자열. AI는 이 중에서만 고른다(PER·PBR은 후보에서 뺀다).
     result["관찰지표후보"] = _watch_candidates(result)
+    print(f"[STEP] indicators.compute {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     return result
 
 

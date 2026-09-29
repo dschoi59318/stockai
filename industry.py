@@ -105,6 +105,7 @@ def load_corp_code_map(force=False):
     if not api_key:
         raise RuntimeError("DART API 키가 없습니다. api_secrets.py의 DART_API_KEY를 채워 주세요.")
 
+    _t = time.perf_counter()                                                     # [계측]
     res = requests.get(
         "https://opendart.fss.or.kr/api/corpCode.xml",
         params={"crtfc_key": api_key}, timeout=60,
@@ -128,6 +129,7 @@ def load_corp_code_map(force=False):
 
     with open(CORPCODE_PKL, "wb") as f:
         pickle.dump(mapping, f)
+    print(f"[STEP] corpCode - {time.perf_counter() - _t:.2f}s", flush=True)     # [계측] 다운로드했을 때만
     return mapping
 
 
