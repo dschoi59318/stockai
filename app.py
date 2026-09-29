@@ -49,6 +49,7 @@ VIEWS = ["종목 분석", "시장 히트맵", "보유종목 히트맵"]
 # 앱 화면 글자 크기(2026-09-29). 글꼴(Noto Sans KR)과 제목 12pt(16px)는 .streamlit/config.toml 의 theme 가 맡고,
 # 본문·캡션·표·사이드바 글자 11pt(14.67px)는 여기서 맞춘다. 버튼·입력 위젯 선택지·metric 큰 숫자/변화는 크기를 그대로 둔다.
 APP_TEXT_PX = "14.6667px"
+APP_METRIC_PX = "21.3333px"     # st.metric 큰 숫자 16pt(원래 36px). 라벨 11pt·등락(delta)은 그대로
 APP_FONT_CSS = f"""<style>
 [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li,
 [data-testid="stMarkdownContainer"] td, [data-testid="stMarkdownContainer"] th,
@@ -59,6 +60,7 @@ button [data-testid="stMarkdownContainer"] p,
 [data-testid="stRadio"] [role="radiogroup"] [data-testid="stMarkdownContainer"] p,
 [data-testid="stCheckbox"] label [data-testid="stMarkdownContainer"] p,
 [data-testid="stMetricValue"] p, [data-testid="stMetricDelta"] p {{ font-size: inherit; }}
+div[data-testid="stMetricValue"] {{ font-size: {APP_METRIC_PX}; }}
 </style>"""
 
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
