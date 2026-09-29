@@ -4,7 +4,6 @@ secrets.py
 .venv/
 data/cache/
 data/holdings.csv
-data/industry_map.csv
 output/
 __pycache__/
 *.pyc
