@@ -46,6 +46,21 @@ MARKET_LABELS = {"코스피": "KOSPI", "코스닥": "KOSDAQ"}
 # 본문 화면 선택(예전 st.tabs 와 같은 라벨·순서). 고른 화면만 실행한다.
 VIEWS = ["종목 분석", "시장 히트맵", "보유종목 히트맵"]
 
+# 앱 화면 글자 크기(2026-09-29). 글꼴(Noto Sans KR)과 제목 12pt(16px)는 .streamlit/config.toml 의 theme 가 맡고,
+# 본문·캡션·표·사이드바 글자 11pt(14.67px)는 여기서 맞춘다. 버튼·입력 위젯 선택지·metric 큰 숫자/변화는 크기를 그대로 둔다.
+APP_TEXT_PX = "14.6667px"
+APP_FONT_CSS = f"""<style>
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] td, [data-testid="stMarkdownContainer"] th,
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
+[data-testid="stTable"] td, [data-testid="stTable"] th,
+[data-testid="stWidgetLabel"] p, [data-testid="stExpander"] summary p {{ font-size: {APP_TEXT_PX}; }}
+button [data-testid="stMarkdownContainer"] p,
+[data-testid="stRadio"] [role="radiogroup"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stCheckbox"] label [data-testid="stMarkdownContainer"] p,
+[data-testid="stMetricValue"] p, [data-testid="stMetricDelta"] p {{ font-size: inherit; }}
+</style>"""
+
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
 PRICE_CAPTION = ("가격·등락률은 정규장 종가 기준 (시간외 거래 미반영) · "
                  "15:40 이전에는 당일 장중 시세를 쓰지 않고 직전 거래일 종가를 기준일로 씀")
@@ -790,6 +805,7 @@ def password_gate():
 
 def main():
     st.set_page_config(page_title="주식 분석 도구", page_icon="📈", layout="wide")
+    st.html(APP_FONT_CSS)                                   # 본문 11pt(화면 전용 스타일, 자리 차지 없음)
     if not password_gate():
         return
     _t = time.perf_counter()                                                     # [계측]

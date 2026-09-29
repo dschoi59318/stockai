@@ -36,6 +36,12 @@ KR_COLORSCALE = [
     [1.00, "#b71c1c"],          # 큰 상승: 진한 빨강
 ]
 
+# 앱 화면 글꼴(2026-09-29): 화면 글자와 같은 Noto Sans KR. 고정 글자(컬러바 눈금·안내 문구·기준일·hover·경로 막대)는
+# 11pt(14.67px), 컬러바 제목은 12pt(16px). 박스 라벨은 면적 비례 크기(아래 FONT_MIN~MAX)를 그대로 둔다.
+APP_FONT = "Noto Sans KR"
+APP_TEXT_PX = 14.6667
+APP_TITLE_PX = 16
+
 # 글자 크기 상·하한 (박스 면적 비율에 따라 자동 계산)
 FONT_MIN = 8
 FONT_MAX = 26
@@ -86,23 +92,23 @@ def _figure(ids, labels, parents, values, colors, hovers, clip, size_label, colo
         branchvalues="total",
         textinfo="label",
         textposition="middle center",
-        textfont=dict(color=TEXT_COLOR, size=12),   # 실제 크기는 라벨 안 span 으로 지정
+        textfont=dict(color=TEXT_COLOR, size=12, family=APP_FONT),   # 실제 크기는 라벨 안 span 으로 지정
         marker=dict(
             colors=colors,
             colorscale=KR_COLORSCALE,
             cmin=-clip, cmid=0, cmax=clip,
             line=dict(color=BG_COLOR, width=1.4),
             colorbar=dict(
-                title=dict(text=color_label, font=dict(color=TEXT_COLOR, size=11)),
+                title=dict(text=color_label, font=dict(color=TEXT_COLOR, size=APP_TITLE_PX, family=APP_FONT)),
                 orientation="h", y=-0.04, yanchor="top", x=0.5, xanchor="center",
                 len=0.5, thickness=12,
-                tickfont=dict(color=TEXT_COLOR, size=10),
+                tickfont=dict(color=TEXT_COLOR, size=APP_TEXT_PX, family=APP_FONT),
                 ticksuffix="%", outlinewidth=0,
             ),
         ),
         customdata=hovers,
         hovertemplate="%{customdata[0]}<extra></extra>",
-        pathbar=dict(visible=pathbar, thickness=18),
+        pathbar=dict(visible=pathbar, thickness=18, textfont=dict(size=APP_TEXT_PX, family=APP_FONT)),
         tiling=dict(pad=2),
     ))
 
@@ -110,13 +116,13 @@ def _figure(ids, labels, parents, values, colors, hovers, clip, size_label, colo
     annotations = [dict(
         text=f"박스 크기는 {size_label}이며, %는 변동률입니다. 색상은 ±{clip:g}% 기준으로 clipping 됩니다.",
         xref="paper", yref="paper", x=0.5, y=-0.13, xanchor="center", yanchor="top",
-        showarrow=False, font=dict(color="#9aa0aa", size=11),
+        showarrow=False, font=dict(color="#9aa0aa", size=APP_TEXT_PX, family=APP_FONT),
     )]
     if base_date:
         annotations.append(dict(
             text=f"기준일 {base_date} 장마감",
             xref="paper", yref="paper", x=1.0, y=1.04, xanchor="right", yanchor="bottom",
-            showarrow=False, font=dict(color="#c8ccd4", size=12),
+            showarrow=False, font=dict(color="#c8ccd4", size=APP_TEXT_PX, family=APP_FONT),
         ))
 
     fig.update_layout(
@@ -124,7 +130,8 @@ def _figure(ids, labels, parents, values, colors, hovers, clip, size_label, colo
         margin=dict(l=6, r=6, t=34, b=96),
         paper_bgcolor=BG_COLOR,
         plot_bgcolor=BG_COLOR,
-        font=dict(color=TEXT_COLOR),
+        font=dict(color=TEXT_COLOR, family=APP_FONT, size=APP_TEXT_PX),
+        hoverlabel=dict(font=dict(family=APP_FONT, size=APP_TEXT_PX)),
         annotations=annotations,
     )
     return fig

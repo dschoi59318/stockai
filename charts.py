@@ -232,12 +232,13 @@ def _report_figsize(kind):
 # ===========================================================================
 
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
-APP_FALLBACK_FONT = "Noto Sans KR"      # 맑은 고딕이 없을 때(리눅스) 앱 그림 서체
+APP_FALLBACK_FONT = "Noto Sans KR"      # 앱 그림 서체(2026-09-29: PC에서도 맑은 고딕 대신 이 글꼴, 화면 글꼴과 통일)
 _app_font = None                        # 한 번만 고른다
 
 
 def _app_font_family():
-    """앱 경로 matplotlib 서체: fonts\\ 의 글꼴 파일을 등록하고, 맑은 고딕이 있으면 그대로, 없으면 Noto Sans KR."""
+    """앱 경로 matplotlib 서체: fonts\\ 의 글꼴 파일(Noto Sans KR Regular·Bold)을 등록하고 Noto Sans KR 을 쓴다.
+    PC·클라우드 모두 같은 글꼴(앱 화면 글꼴과 같음). report=True 경로는 이 함수를 쓰지 않는다."""
     global _app_font
     if _app_font is None:
         from matplotlib import font_manager
@@ -248,8 +249,7 @@ def _app_font_family():
                 registered.append(f"{os.path.basename(path)} ({font_manager.FontProperties(fname=path).get_name()})")
             except Exception as exc:
                 logging.getLogger(__name__).warning("글꼴 등록 실패: %s (%s)", os.path.basename(path), exc)
-        installed = {f.name for f in font_manager.fontManager.ttflist}
-        _app_font = FONT_FAMILY if FONT_FAMILY in installed else APP_FALLBACK_FONT
+        _app_font = APP_FALLBACK_FONT
         logging.getLogger(__name__).info("fonts 등록: %s / 앱 서체: %s", ", ".join(registered) or "없음", _app_font)
     return _app_font
 
@@ -506,10 +506,14 @@ COLOR_POINT = "#1F3A5F"
 APP_WIDTH_PX = 1100
 APP_DPI = 100
 APP_HEIGHT_IN = {"range": 3.2, "returns": 3.2, "bar": 3.2, "price": 4.2, "volume": 2.2, "fin": 3.2}
-APP_TITLE_PT = 12
-APP_LABEL_PT = 10
-APP_TICK_PT = 9
-APP_VALUE_PT = 10               # 막대 값 라벨(bold)
+# 글자 크기(2026-09-29): 화면 글자와 같게 제목 12pt(16px), 축·눈금·범례·값 라벨 11pt(14.67px).
+# 그림은 dpi 100 캔버스를 1:1 로 보이므로 matplotlib 포인트 = 화면 px x 72 / 100 으로 바꿔 넣는다.
+APP_TITLE_PX = 16.0
+APP_TEXT_PX = 14.6667
+APP_TITLE_PT = APP_TITLE_PX * 72 / APP_DPI      # 11.52
+APP_LABEL_PT = APP_TEXT_PX * 72 / APP_DPI       # 10.56
+APP_TICK_PT = APP_LABEL_PT
+APP_VALUE_PT = APP_LABEL_PT     # 막대 값 라벨(bold)
 APP_BAR_WIDTH = 0.35
 APP_LINE_WIDTH = 1.2
 
