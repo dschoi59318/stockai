@@ -795,6 +795,7 @@ def main():
     _t = time.perf_counter()                                                     # [계측]
     dl.RUN_ID = time.strftime("%H%M%S") + f".{int(time.time() * 1000) % 1000:03d}"   # [계측] 실행마다 새 id
     print(f"[SUB] 실행 시작 {dl.sub_tag()}", flush=True)                          # [계측]
+    st.session_state[financials.RUN_MEMO_KEY] = {}     # 이번 실행 안에서만 load_financials 결과 재사용(다음 실행엔 새로)
     st.title("📈 주식 분석 도구")
     st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 Claude 해설 리포트를 제공합니다.")
 

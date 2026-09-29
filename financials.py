@@ -55,6 +55,7 @@ financials.py - DART 재무 데이터 수집 (4단계)
  캐시 구조가 바뀌면 CACHE_VERSION을 올려 예전 파일과 섞이지 않게 한다.
 """
 
+import copy
 import json
 import os
 import re
@@ -70,6 +71,9 @@ import keys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FIN_CACHE_DIR = os.path.join(BASE_DIR, "data", "cache", "fin")
 CACHE_VERSION = "v2"        # v1(버전 없음) -> v2: 전체 재무제표 캐시 추가
+# status 013(조회된 데이터 없음 = 아직 미공시) 응답은 '미공시' 표시 파일로 1일 동안만 기억한다.
+# 다음 날에는 다시 물어서 그사이 공시됐으면 정상(000) 응답을 받아 저장한다. 000 규칙은 그대로.
+NODATA_TTL = 24 * 60 * 60   # 초
 
 DART_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
 DART_ALL_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
@@ -151,6 +155,12 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
         finally:                                                                 # [계측]
             print(f"[SUB] 캐시읽기 fin {_tag} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)
 
+    # 1일 안에 013(미공시)을 받은 보고서는 다시 묻지 않는다(예전과 같이 None).
+    nodata_path = path[:-len(".json")] + "_013.json"
+    if not refresh and os.path.exists(nodata_path) and time.time() - os.path.getmtime(nodata_path) < NODATA_TTL:
+        print(f"[SUB] 미공시 표시 사용(013, 1일) {_tag} {_sub_tag()}", flush=True)   # [계측]
+        return None
+
     _ts = time.perf_counter()                                                    # [계측]
     api_key = keys.get_dart_api_key()
     print(f"[SUB] 키조회 DART {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)   # [계측] 값은 찍지 않는다
@@ -172,7 +182,15 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
     print(f"[SUB] DART {_tag} status={body.get('status')} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
           flush=True)                                                            # [계측]
 
-    if body.get("status") != "000":      # 013 = 조회된 데이터 없음 등
+    if body.get("status") == "013":      # 조회된 데이터 없음(미공시): 1일짜리 표시 파일만 남긴다
+        try:
+            with open(nodata_path, "w", encoding="utf-8") as f:
+                json.dump({"status": "013", "message": body.get("message"),
+                           "checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, f, ensure_ascii=False)
+        except Exception:
+            pass
+        return None
+    if body.get("status") != "000":      # 그 밖의 오류(키·한도 등)는 저장하지 않는다
         return None
 
     _ts = time.perf_counter()                                                    # [계측]
@@ -785,8 +803,32 @@ def load_season_years(code, refresh=False, today=None):
     return out
 
 
+RUN_MEMO_KEY = "_fin_run_memo"          # app.main 이 화면 실행(rerun)마다 새 dict 로 바꾼다
+
+
+def _run_memo():
+    """이번 화면 실행의 load_financials 메모(dict). Streamlit 스크립트 스레드 밖(작업 스레드·리포트 단독 실행)은 None."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        if get_script_run_ctx() is None:
+            return None
+        memo = st.session_state.get(RUN_MEMO_KEY)
+        return memo if isinstance(memo, dict) else None
+    except Exception:
+        return None
+
+
 def load_financials(code, name="", refresh=False):
-    """연간·분기 재무와 비율을 한 번에 만들어 돌려준다."""
+    """연간·분기 재무와 비율을 한 번에 만들어 돌려준다.
+
+    한 번의 화면 실행 안에서는 같은 종목 결과를 재사용한다(재무 섹션·쉽게 읽기·방향 지시계·지표가 각각 부르던 것을
+    1번으로). 메모는 app.main 이 실행마다 새로 만들므로 다음 실행에는 남지 않는다. 돌려주는 값은 복사본이다.
+    """
+    memo = _run_memo()
+    memo_key = (str(code).zfill(6), name, bool(refresh))
+    if memo is not None and memo_key in memo:
+        print(f"[SUB] load_financials 재사용(이번 실행) {memo_key[0]} {_sub_tag()}", flush=True)   # [계측]
+        return copy.deepcopy(memo[memo_key])
     _t = time.perf_counter()                                                     # [계측]
     print(f"[SUB] load_financials 시작 {str(code).zfill(6)} {_sub_tag()}", flush=True)   # [계측]
     annual = load_annual(code, refresh)
@@ -819,7 +861,7 @@ def load_financials(code, name="", refresh=False):
     print(f"[SUB] load_season_years(호출) {str(code).zfill(6)} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
           flush=True)                                                            # [계측]
     print(f"[STEP] 재무 {str(code).zfill(6)} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측] 계절성 포함
-    return {
+    result = {
         "종목코드": str(code).zfill(6),
         "종목명": name,
         "연결구분": label,
@@ -831,6 +873,9 @@ def load_financials(code, name="", refresh=False):
         "비율": ratios,
         "수집시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if memo is not None:
+        memo[memo_key] = copy.deepcopy(result)
+    return result
 
 
 # ---------------------------------------------------------------------------
