@@ -89,6 +89,16 @@ def _ensure_dirs():
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 
+class _NoCache(Exception):
+    """st.cache_data 함수가 실패 결과를 캐시하지 않게 올리는 예외(2026-09-29 실패 캐시 방지).
+
+    value = 공개 함수가 호출한 쪽에 돌려줄 기존 실패 값(빈 DataFrame 등). 화면 문구는 그대로 나온다.
+    """
+    def __init__(self, value):
+        super().__init__("실패 결과는 캐시하지 않음")
+        self.value = value
+
+
 # ===========================================================================
 # 1단계 - 종목 목록
 # ===========================================================================
@@ -324,8 +334,12 @@ def load_ohlcv(code, period_label):
     반환 컬럼: 시가 / 고가 / 저가 / 종가 / 거래량 / MA20 / MA60
     데이터를 못 받으면 빈 DataFrame을 반환한다.
     캐시 키에 기준일 cutoff 날짜를 넣어, 15:40을 넘기면 장 마감 일봉으로 다시 받는다(지침 v1.4 5.0).
+    받지 못한 결과(빈 DataFrame)는 캐시하지 않는다 - 다음 화면 갱신 때 다시 받는다.
     """
-    return _load_ohlcv_cached(code, period_label, session_cutoff().isoformat())
+    try:
+        return _load_ohlcv_cached(code, period_label, session_cutoff().isoformat())
+    except _NoCache as miss:
+        return miss.value
 
 
 @st.cache_data(ttl=60 * 30, show_spinner="시세를 불러오는 중입니다...")
@@ -338,7 +352,7 @@ def _load_ohlcv_cached(code, period_label, cutoff):
 
     df = fetch_ohlcv_raw(code, fetch_start, end_date)
     if df.empty:
-        return pd.DataFrame()
+        raise _NoCache(pd.DataFrame())          # 실패는 캐시하지 않는다(load_ohlcv 가 빈 표로 돌려준다)
 
     # 이동평균선(20일/60일)은 잘라내기 전 전체 구간으로 계산해야 값이 정확하다.
     df["MA20"] = df["종가"].rolling(window=20).mean()
@@ -395,14 +409,21 @@ def summarize(df):
 RANK_CACHE = os.path.join(CACHE_DIR, "marcap_rank.csv")   # 순위용 최근 종가·상장주식수(성공할 때마다 갱신)
 
 
-@st.cache_data(ttl=60 * 10, show_spinner="종목 목록을 불러오는 중입니다...")
 def load_market_snapshot():
     """FinanceDataReader 전종목 목록에서 종목 풀·상장주식수·(있으면) 시가총액을 가져온다(10분 캐시).
 
     반환 컬럼: 종목코드 / 종목명 / 시장 / 시가총액(FDR, 없으면 NaN) / 상장주식수
     (가격·등락률은 일부러 담지 않는다. 가격은 pykrx 일봉에서만 읽는다.)
-    FDR 호출이 실패하면 순위 캐시(marcap_rank.csv)의 종목·상장주식수로 대신한다.
+    FDR 호출이 실패하면 순위 캐시(marcap_rank.csv)의 종목·상장주식수로 대신한다(이 대체 결과는 캐시하지 않는다).
     """
+    try:
+        return _market_snapshot_cached()
+    except _NoCache as miss:
+        return miss.value
+
+
+@st.cache_data(ttl=60 * 10, show_spinner="종목 목록을 불러오는 중입니다...")
+def _market_snapshot_cached():
     import FinanceDataReader as fdr
 
     columns = ["종목코드", "종목명", "시장", "시가총액", "상장주식수"]
@@ -412,8 +433,8 @@ def load_market_snapshot():
         df = None
     if df is None or df.empty:
         saved = _load_rank_cache()
-        return saved[columns[:3] + ["상장주식수"]].assign(시가총액=float("nan"))[columns] if not saved.empty \
-            else pd.DataFrame(columns=columns)
+        raise _NoCache(saved[columns[:3] + ["상장주식수"]].assign(시가총액=float("nan"))[columns] if not saved.empty
+                       else pd.DataFrame(columns=columns))
 
     out = pd.DataFrame({
         "종목코드": df["Code"].astype(str).str.zfill(6),

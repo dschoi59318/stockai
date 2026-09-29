@@ -792,10 +792,14 @@ def build_events(code, name, market=None, refresh=False, today=None, use_google=
                  "원인확인비율": round(confirmed / len(timeline) * 100, 1) if timeline else None,
                  "뉴스수집": {s: sum(1 for t in timeline if t["뉴스수집"] == s) for s in (NEWS_OK, NEWS_NONE, NEWS_OUT)}},
     }
-    try:
-        os.makedirs(EVENTS_CACHE_DIR, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=1)
-    except Exception:
-        pass
+    # 수집이 하나라도 실패한 결과(지수·공시·네이버·구글 오류)는 파일에 남기지 않는다 - 같은 기준일에 다시 받는다.
+    failed = (index_ret is None or disclosures["오류"] or news["오류"]
+              or any((t.get("구글검색") or {}).get("오류") for t in timeline))
+    if not failed:
+        try:
+            os.makedirs(EVENTS_CACHE_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=1)
+        except Exception:
+            pass
     return result
