@@ -1,0 +1,12 @@
+api_secrets.py
+secrets.py
+.streamlit/secrets.toml
+.venv/
+data/cache/
+data/holdings.csv
+data/industry_map.csv
+output/
+__pycache__/
+*.pyc
+_backup/
+cloud_probe/
