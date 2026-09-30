@@ -80,6 +80,19 @@ class StopRun(Exception):
     """하루 한도·020·연속 연결 오류로 이번 실행을 멈춘다(저장은 하고 멈춘다)."""
 
 
+def _replace(src, dst, tries=20, wait=0.5):
+    """임시 파일 -> 본 파일 바꾸기. Windows 에서 다른 프로세스가 파일을 잠깐 열고 있으면
+    PermissionError(WinError 5)가 나므로 잠시 기다렸다 다시 한다(최대 약 10초)."""
+    for attempt in range(tries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(wait)
+
+
 # ---------------------------------------------------------------------------
 # 받을 보고서 목록 (financials 와 같은 규칙)
 # ---------------------------------------------------------------------------
@@ -161,14 +174,14 @@ class Runner:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.progress, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, path)
+        _replace(tmp, path)
 
     def save_manifest(self):
         rows = sorted(self.manifest.values(), key=lambda r: (r["kind"], int(r["year"]), r["reprt"], r["corp_code"]))
         df = pd.DataFrame(rows, columns=fs.MANIFEST_COLUMNS)
         path = os.path.join(self.store, fs.MANIFEST_CSV)
         df.to_csv(path + ".tmp", index=False, encoding="utf-8-sig")
-        os.replace(path + ".tmp", path)
+        _replace(path + ".tmp", path)
 
     def mark(self, corp, kind, year, reprt, status, rcept_no=""):
         self.manifest[(corp, kind, int(year), reprt)] = {
@@ -248,7 +261,7 @@ def write_partition(store, kind, year, reprt, new_rows, replace_corps):
     table = pa.Table.from_pandas(df[columns], schema=_schema(kind), preserve_index=False)
     tmp = path + ".tmp"
     pq.write_table(table, tmp, compression="zstd")
-    os.replace(tmp, path)
+    _replace(tmp, path)
 
 
 def partition_corps_with_cfs(store, year, reprt):
