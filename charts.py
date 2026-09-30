@@ -525,6 +525,9 @@ APP_GRID = "#2B3A55"
 APP_UP = "#FF5A5F"
 APP_DOWN = "#4F9BFF"
 APP_COLOR_POINT = "#7EA6FF"
+# 52주 범위(2026-09-30): 가로 막대 #2B3A55, 현재가 점·"현재가" 글자 #F5B544, 최저/최고 글자 #C9D1E0(APP_FG).
+APP_RANGE_BAR = "#2B3A55"
+APP_RANGE_POINT = "#F5B544"
 
 
 def app_fig(kind):
@@ -567,10 +570,10 @@ def _range_app(low, high, cur, path_or_buffer, title=None):
     fig.subplots_adjust(left=0.04, right=0.96, top=0.86 if title else 0.96, bottom=0.04)
     if title:
         ax.set_title(title, fontsize=APP_TITLE_PT, color=APP_FG, pad=10)
-    ax.plot([low, high], [0, 0], color=COLOR_RANGE, linewidth=12, solid_capstyle="round", zorder=1)
-    ax.scatter([cur], [0], s=170, color=APP_COLOR_POINT, zorder=3)
+    ax.plot([low, high], [0, 0], color=APP_RANGE_BAR, linewidth=12, solid_capstyle="round", zorder=1)
+    ax.scatter([cur], [0], s=170, color=APP_RANGE_POINT, zorder=3)
     ax.annotate(f"현재가 {cur:,}원", (cur, 0), xytext=(0, 13), textcoords="offset points",
-                ha="center", va="bottom", fontsize=APP_VALUE_PT, fontweight="bold", color=APP_COLOR_POINT)
+                ha="center", va="bottom", fontsize=APP_VALUE_PT, fontweight="bold", color=APP_RANGE_POINT)
     for value, label in ((low, "52주 최저"), (high, "52주 최고")):
         ax.annotate(f"{label}\n{value:,}원", (value, 0), xytext=(0, -14), textcoords="offset points",
                     ha="center", va="top", fontsize=APP_LABEL_PT, linespacing=1.3, color=APP_FG)

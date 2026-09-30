@@ -85,6 +85,33 @@ div[data-testid="stMetricValue"] {{ color: {APP_TEXT_COLOR}; }}
 [data-testid="stHeading"] h3 {{ border-left: 3px solid {APP_ACCENT}; padding-left: 10px; }}
 </style>"""
 
+# 제목 색·본문 줄간격(2026-09-30, 화면 전용).
+#  - 제목: 페이지 제목·종목명·섹션 제목·사이드바 제목(stHeading), 마크다운 제목(#### 등), 굵은 글씨 한 줄 소제목
+#    (**...** 만 있는 문단 - 쉽게 읽기 장 제목·"방향 지시계" 등)을 APP_HEADING_COLOR 로.
+#    방향 지시계 판정(### 판정)·종합 상태 글자는 APP_HIGHLIGHT 그대로(아래 규칙이 뒤에 와서 이긴다), metric 숫자는 제목이 아니라 그대로.
+#  - 본문: st.markdown/st.write/st.caption 문단·목록(stMarkdown 안 p·li)의 줄 높이 1.6 -> 1.12, 문단 사이(p 아래 여백)
+#    16px -> 11.2px, 목록 항목 위아래 0.2em -> 0.14em(모두 70%). 소제목 문단은 줄 높이를 바꾸지 않는다.
+#    소제목 위아래·표·차트·버튼 주변 간격은 요소 사이 간격(stVerticalBlock gap 16px)이라 건드리지 않는다.
+#  - "빼" 한 글자 배경처럼 보이던 문제: 글자 속성이 아니라 Windows Chrome 서브픽셀(LCD) 안티에일리어싱 탓.
+#    '빼'(ㅃ+ㅐ, 세로획 6개)가 14.67px 에서 인접 픽셀 열에 붙고 색 번짐이 틈을 메워 색 칠한 칸처럼 보였다.
+#    마크다운 요소를 합성 레이어(will-change)로 올려 회색조 안티에일리어싱으로 그린다(배치·크기 변화 없음).
+APP_HEADING_COLOR = "#4F86F7"
+APP_BODY_LINE_HEIGHT = "1.12"          # 원래 1.6 (14.67px 글자 -> 23.47px)의 70%
+APP_BODY_PARA_GAP = "11.2px"           # 원래 1rem(16px)의 70%
+APP_BODY_LI_GAP = "0.14em"             # 원래 0.2em 의 70%
+_BODY_P = ('[data-testid="stMarkdown"] p:not(:has(> strong:only-child))',
+           '[data-testid="stMarkdown"] li')
+APP_TEXT_CSS = f"""<style>
+[data-testid="stHeading"] :is(h1, h2, h3, h4, h5, h6),
+[data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] :is(h1, h2, h3, h4, h5, h6),
+[data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] p > strong:only-child {{ color: {APP_HEADING_COLOR}; }}
+.st-key-card_direction [data-testid="stMarkdownContainer"] h3 {{ color: {APP_HIGHLIGHT}; }}
+{_BODY_P[0]}, {_BODY_P[1]} {{ line-height: {APP_BODY_LINE_HEIGHT}; }}
+[data-testid="stMarkdown"] p:not(:last-child) {{ margin-bottom: {APP_BODY_PARA_GAP}; }}
+[data-testid="stMarkdown"] li {{ margin-top: {APP_BODY_LI_GAP}; margin-bottom: {APP_BODY_LI_GAP}; }}
+[data-testid="stMarkdown"] {{ will-change: transform; }}
+</style>"""
+
 
 def _dark(fig):
     """plotly 그림의 화면 표시용 복사본: 바탕 투명 + 글자 밝게(다크 테마). 원본(리포트 이미지 경로)은 건드리지 않는다.
@@ -100,7 +127,17 @@ def _dark(fig):
             tr.marker.color = [swap.get(c, c) for c in tr.marker.color]
         elif tr.type == "scatter" and tr.name in ("20일 이동평균", "60일 이동평균"):
             tr.line.color = APP_HIGHLIGHT if tr.name.startswith("20") else APP_ACCENT
+        elif tr.type == "bar" and tr.marker.color in APP_FIN_BAR:                 # 재무 차트 막대(매출액·영업이익)
+            tr.marker.color = APP_FIN_BAR[tr.marker.color]
+        elif tr.type == "scatter" and tr.name == "영업이익률(%)":                  # 재무 차트 선·점·값 라벨
+            tr.line.color = tr.marker.color = APP_HIGHLIGHT
+            tr.textfont.color = APP_HIGHLIGHT
     return fig
+
+
+# 재무 차트 화면 색(2026-09-30): 매출액 #3A4A66, 영업이익 #4F86F7, 영업이익률 선·점·값 라벨 #F5B544(APP_HIGHLIGHT).
+# 리포트 그림은 charts.build_fin_chart 원래 색 그대로(_dark 는 화면 표시용 복사본만 바꾼다).
+APP_FIN_BAR = {charts.COLOR_SALES: "#3A4A66", charts.COLOR_OP: APP_ACCENT}
 
 # 모든 탭의 가격 표시 근처에 같은 문구를 쓴다(가격 소스 오해 방지).
 PRICE_CAPTION = ("가격·등락률은 정규장 종가 기준 (시간외 거래 미반영) · "
@@ -477,7 +514,8 @@ def render_report_section(picked):
         f" (입력 ${narrator.MODELS[narrator.CALLS[call]['모델']]['input_per_mtok']:.2f} / "
         f"출력 ${narrator.MODELS[narrator.CALLS[call]['모델']]['output_per_mtok']:.2f}, 100만 토큰당)"
         for call in narrator.CALL_ORDER)
-    st.caption(f"AI 해설 모델 - {models}")
+    # '$2.00 / 출력 $' 가 마크다운 수식(코드 모양)으로 바뀌지 않게 $ 를 이스케이프한다(색은 캡션 색 #9AA4B8).
+    st.caption(f"AI 해설 모델 - {models}".replace("$", "\\$"))
 
 
 # ===========================================================================
@@ -850,7 +888,7 @@ def password_gate():
 
 def main():
     st.set_page_config(page_title="주식 분석 도구", page_icon="📈", layout="wide")
-    st.html(APP_FONT_CSS + APP_THEME_CSS)                   # 본문 11pt·다크 테마 보조 스타일(화면 전용, 자리 차지 없음)
+    st.html(APP_FONT_CSS + APP_THEME_CSS + APP_TEXT_CSS)    # 본문 11pt·다크 테마·제목 색·줄간격(화면 전용, 자리 차지 없음)
     if not password_gate():
         return
     _t = time.perf_counter()                                                     # [계측]
