@@ -67,7 +67,8 @@ div[data-testid="stMetricValue"] {{ font-size: {APP_METRIC_PX}; }}
 # 앱 화면 색(2026-09-29, 네이비 + 대비 보강). 기본 색은 .streamlit/config.toml [theme].
 # 여기서는 카드(테두리 상자) 배경·테두리·모서리, 보조 글자, 방향 지시계 강조색, metric 색, 소제목 막대를 맞춘다.
 APP_TEXT_COLOR = "#F1F4F9"
-APP_MUTED_COLOR = "#9AA4B8"
+APP_MUTED_COLOR = "#C3CAD8"      # 보조 글자(캡션·방향 지시계 라벨·기준일 문구). 2026-09-30 #9AA4B8 -> 대비 보강
+APP_REASON_COLOR = "#D5DBE6"     # 방향 지시계 판정 설명 문장(각 신호 칸의 마지막 캡션)
 APP_CARD_BG = "#162033"
 APP_BORDER_COLOR = "#2B3A55"
 APP_ACCENT = "#4F86F7"
@@ -79,6 +80,8 @@ APP_THEME_CSS = f"""<style>
 [class*="st-key-card_"] {{ background: {APP_CARD_BG}; border-color: {APP_BORDER_COLOR} !important; border-radius: 12px; }}
 [data-testid="stDataFrameResizable"] {{ border-color: {APP_BORDER_COLOR}; border-radius: 12px !important; }}
 .st-key-card_direction h3, .st-key-card_direction .dir-overall {{ color: {APP_HIGHLIGHT}; }}
+.st-key-card_direction [data-testid="stColumn"] [data-testid="stElementContainer"]:last-child [data-testid="stCaptionContainer"],
+.st-key-card_direction [data-testid="stColumn"] [data-testid="stElementContainer"]:last-child [data-testid="stCaptionContainer"] p {{ color: {APP_REASON_COLOR}; }}
 div[data-testid="stMetricValue"] {{ color: {APP_TEXT_COLOR}; }}
 [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Up"]) {{ color: {APP_UP}; background-color: rgba(255, 90, 95, 0.16); }}
 [data-testid="stMetricDelta"]:has([data-testid="stMetricDeltaIcon-Down"]) {{ color: {APP_DOWN}; background-color: rgba(79, 155, 255, 0.16); }}
@@ -89,24 +92,21 @@ div[data-testid="stMetricValue"] {{ color: {APP_TEXT_COLOR}; }}
 #  - 제목: 페이지 제목·종목명·섹션 제목·사이드바 제목(stHeading), 마크다운 제목(#### 등), 굵은 글씨 한 줄 소제목
 #    (**...** 만 있는 문단 - 쉽게 읽기 장 제목·"방향 지시계" 등)을 APP_HEADING_COLOR 로.
 #    방향 지시계 판정(### 판정)·종합 상태 글자는 APP_HIGHLIGHT 그대로(아래 규칙이 뒤에 와서 이긴다), metric 숫자는 제목이 아니라 그대로.
-#  - 본문: st.markdown/st.write/st.caption 문단·목록(stMarkdown 안 p·li)의 줄 높이 1.6 -> 1.12, 문단 사이(p 아래 여백)
-#    16px -> 11.2px, 목록 항목 위아래 0.2em -> 0.14em(모두 70%). 소제목 문단은 줄 높이를 바꾸지 않는다.
+#  - 본문: st.markdown/st.write/st.caption 문단·목록(stMarkdown 안 p·li)의 문단 사이(p 아래 여백) 16px -> 11.2px,
+#    목록 항목 위아래 0.2em -> 0.14em(모두 70%). 줄 높이는 기본값 1.6(14.67px 글자 -> 23.47px) 그대로 둔다
+#    (70% 축소 1.12 는 모바일에서 줄이 겹쳐 보여 취소, 2026-09-30).
 #    소제목 위아래·표·차트·버튼 주변 간격은 요소 사이 간격(stVerticalBlock gap 16px)이라 건드리지 않는다.
 #  - "빼" 한 글자 배경처럼 보이던 문제: 글자 속성이 아니라 Windows Chrome 서브픽셀(LCD) 안티에일리어싱 탓.
 #    '빼'(ㅃ+ㅐ, 세로획 6개)가 14.67px 에서 인접 픽셀 열에 붙고 색 번짐이 틈을 메워 색 칠한 칸처럼 보였다.
 #    마크다운 요소를 합성 레이어(will-change)로 올려 회색조 안티에일리어싱으로 그린다(배치·크기 변화 없음).
 APP_HEADING_COLOR = "#4F86F7"
-APP_BODY_LINE_HEIGHT = "1.12"          # 원래 1.6 (14.67px 글자 -> 23.47px)의 70%
 APP_BODY_PARA_GAP = "11.2px"           # 원래 1rem(16px)의 70%
 APP_BODY_LI_GAP = "0.14em"             # 원래 0.2em 의 70%
-_BODY_P = ('[data-testid="stMarkdown"] p:not(:has(> strong:only-child))',
-           '[data-testid="stMarkdown"] li')
 APP_TEXT_CSS = f"""<style>
 [data-testid="stHeading"] :is(h1, h2, h3, h4, h5, h6),
 [data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] :is(h1, h2, h3, h4, h5, h6),
 [data-testid="stMarkdown"] [data-testid="stMarkdownContainer"] p > strong:only-child {{ color: {APP_HEADING_COLOR}; }}
 .st-key-card_direction [data-testid="stMarkdownContainer"] h3 {{ color: {APP_HIGHLIGHT}; }}
-{_BODY_P[0]}, {_BODY_P[1]} {{ line-height: {APP_BODY_LINE_HEIGHT}; }}
 [data-testid="stMarkdown"] p:not(:last-child) {{ margin-bottom: {APP_BODY_PARA_GAP}; }}
 [data-testid="stMarkdown"] li {{ margin-top: {APP_BODY_LI_GAP}; margin-bottom: {APP_BODY_LI_GAP}; }}
 [data-testid="stMarkdown"] {{ will-change: transform; }}
