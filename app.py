@@ -31,6 +31,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import charts
+import dart_guard
 import data as dl
 import direction
 import easy_read
@@ -202,6 +203,13 @@ def _fmt_ratio(value, suffix=""):
     return f"{value:,.1f}{suffix}"
 
 
+def _dart_missing(fin):
+    """DART 불가 상태(차단기)이고 재무가 비었거나 모자라면 True -> 화면에 DART 연결 불가 안내를 띄운다."""
+    if dart_guard.available():
+        return False
+    return not fin or not fin.get("연간") or len(fin.get("분기") or []) < 4
+
+
 def _industry_group(code):
     """업종 매핑에서 종목의 업종그룹을 찾는다(없으면 None)."""
     imap = industry.load_industry_map()
@@ -224,7 +232,11 @@ def render_financial_section(picked):
     with st.spinner("DART 재무 데이터를 불러오는 중입니다..."):
         fin = financials.load_financials(code, picked["종목명"])
 
-    if not fin["연간"] and not fin["분기"]:
+    if _dart_missing(fin):                  # DART 연결 불가(일시적): 안내만. 캐시에 있던 값이 있으면 아래에 그대로 보인다
+        st.warning(dart_guard.UNAVAILABLE_MESSAGE)
+        if not fin["연간"] and not fin["분기"]:
+            return
+    elif not fin["연간"] and not fin["분기"]:
         st.warning("DART에서 재무 데이터를 찾지 못했습니다. (신규 상장, 리츠·스팩 등은 주요계정이 없을 수 있습니다)")
         return
 
@@ -358,6 +370,8 @@ def render_direction_box(picked):
         cols = st.columns(3)
         for col, key in zip(cols, ("가격 추세", "실적 흐름", "거래 관심도")):
             sig = box[key] or {"판정": "판정 불가", "근거": "이동평균을 계산할 데이터가 부족합니다"}
+            if key == "실적 흐름" and _dart_missing(fin):      # DART 연결 불가(일시적) 안내
+                sig = {"판정": sig["판정"], "근거": dart_guard.UNAVAILABLE_MESSAGE}
             col.caption(key)
             col.markdown(f"### {sig['판정']}")
             col.caption(sig["근거"])
@@ -847,6 +861,10 @@ def render_sidebar():
     st.sidebar.subheader("재무")
     if st.sidebar.button("재무 새로고침", disabled=picked is None,
                          help="선택 종목의 DART 재무 캐시를 지우고 다시 수집합니다"):
+        if not dart_guard.available():      # 연결 불가 중에 지우면 다시 받을 수 없으므로 캐시를 그대로 둔다
+            st.sidebar.warning(f"DART 서버에 연결할 수 없는 상태라 재무 캐시를 지우지 않았습니다. "
+                               f"약 {dart_guard.remaining() / 60:.0f}분 뒤 다시 눌러 주세요.")
+            return picked, period_label
         removed = financials.clear_cache(picked["종목코드"])
         # load_financials 는 st 캐시 함수가 아니다(.clear() 없음). 재무 값을 들고 있는 st 캐시 함수만 비운다.
         for cached in (indicators.compute, financials.load_season_years):

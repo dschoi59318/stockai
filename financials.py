@@ -66,6 +66,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
+import dart_guard
 import keys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,7 +78,7 @@ NODATA_TTL = 24 * 60 * 60   # 초
 
 DART_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
 DART_ALL_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 15        # (예전 값) DART 호출 timeout 은 dart_guard(연결 3초·읽기 15초)가 정한다
 
 # 보고서 코드
 REPRT_ANNUAL = "11011"      # 사업보고서(연간)
@@ -161,6 +162,9 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
         print(f"[SUB] 미공시 표시 사용(013, 1일) {_tag} {_sub_tag()}", flush=True)   # [계측]
         return None
 
+    if not dart_guard.available():       # DART 불가 상태(차단기): 네트워크에 나가지 않는다. 캐시에도 남기지 않는다
+        print(f"[SUB] DART 건너뜀(차단기, 남은 {dart_guard.remaining():.0f}s) {_tag} {_sub_tag()}", flush=True)  # [계측]
+        return None
     _ts = time.perf_counter()                                                    # [계측]
     api_key = keys.get_dart_api_key()
     print(f"[SUB] 키조회 DART {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)   # [계측] 값은 찍지 않는다
@@ -173,7 +177,7 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
         params["fs_div"] = fs_div
     _ts = time.perf_counter()                                                    # [계측]
     try:
-        res = requests.get(DART_ALL_URL if fs_div else DART_URL, params=params, timeout=REQUEST_TIMEOUT)
+        res = dart_guard.get(DART_ALL_URL if fs_div else DART_URL, params=params)
         body = res.json()
     except Exception as _exc:
         print(f"[SUB] DART {_tag} 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
@@ -784,8 +788,27 @@ def market_cap(code):
     return {"합계": common + sum(v for _, v in prefs), "보통주": common, "우선주": prefs}
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def load_season_years(code, refresh=False, today=None):
+    """계절성 연도(6시간 캐시). DART 불가 상태에서 만든(빠진) 결과는 st 캐시에 넣지 않는다(indicators.compute 와 같은 규칙).
+    load_financials 가 화면 실행마다 1번 부르므로 불가 상태에서는 캐시 없이 계산한다."""
+    if dart_guard.available():
+        try:
+            return _load_season_years_cached(code, refresh, today, dart_guard.state_key())
+        except dart_guard.TrippedDuringCache as exc:
+            return exc.result
+    return _load_season_years(code, refresh, today)
+
+
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def _load_season_years_cached(code, refresh, today, dart_state):
+    """load_season_years 의 6시간 캐시 본체. 계산 도중 DART 불가가 되면 캐시하지 않도록 예외로 돌려준다."""
+    result = _load_season_years(code, refresh, today)
+    if not dart_guard.available():
+        raise dart_guard.TrippedDuringCache(result)
+    return result
+
+
+def _load_season_years(code, refresh=False, today=None):
     """계절성 판정용(리포트 구성 지침 v1.4 5.10): 직전 완결된 2개 사업연도의 분기별(3개월) 매출·영업이익.
 
     완결 연도 = 사업보고서까지 공시된 가장 최근 연도(latest_annual_year)와 그 전 해.
@@ -801,6 +824,9 @@ def load_season_years(code, refresh=False, today=None):
         out[year] = [x for x in (quarters.get("분기별") or []) if x["분기"].startswith(str(year))]
     print(f"[STEP] 계절성 {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     return out
+
+
+load_season_years.clear = _load_season_years_cached.clear      # 사이드바 '재무 새로고침'이 부르는 캐시 비우기
 
 
 RUN_MEMO_KEY = "_fin_run_memo"          # app.main 이 화면 실행(rerun)마다 새 dict 로 바꾼다

@@ -23,6 +23,7 @@ indicators.py - 개별 종목의 가격 지표 계산
     재무 사실 문장(증감·흑자/적자·추세). 데이터가 없으면 사유만 담는다.
 """
 
+import copy
 import os
 import time                                                                      # [계측]
 from datetime import datetime, timedelta
@@ -31,6 +32,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import dart_guard
 import data as dl
 
 # 기간 라벨 -> 달력 일수
@@ -317,9 +319,44 @@ def _build_facts(last, ma, returns, day_rate, volume, week52, industry_block):
     return [f for f in facts if f]
 
 
-@st.cache_data(ttl=60 * 30, show_spinner=False)
 def compute(code, name="", market=""):
-    """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None."""
+    """종목 하나의 지표를 모두 계산해 dict로 반환한다(30분 캐시). 실패하면 None.
+
+    DART 차단기(dart_guard): 재무 블록이 빠진 결과를 30분 캐시에 넣지 않는다.
+     - DART 불가 상태면 st 캐시를 쓰지 않고 이번 화면 실행 안에서만 재사용한다.
+     - 계산 도중 불가 상태가 되면 결과를 돌려주되 st 캐시에는 남기지 않는다.
+    """
+    import financials
+    memo = financials._run_memo()
+    memo_key = ("indicators.compute", str(code).zfill(6), name, market)
+    if dart_guard.available():
+        try:
+            return _compute_cached(code, name, market, dart_guard.state_key())
+        except dart_guard.TrippedDuringCache as exc:
+            result = exc.result
+    elif memo is not None and memo_key in memo:
+        return copy.deepcopy(memo[memo_key])
+    else:
+        result = _compute(code, name, market)
+    if memo is not None:
+        memo[memo_key] = copy.deepcopy(result)
+    return result
+
+
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def _compute_cached(code, name, market, dart_state):
+    """compute 의 30분 캐시 본체. dart_state='ok' 로 시작했는데 끝에 DART 불가면 캐시하지 않도록 예외로 돌려준다."""
+    result = _compute(code, name, market)
+    if not dart_guard.available():
+        raise dart_guard.TrippedDuringCache(result)
+    return result
+
+
+compute.clear = _compute_cached.clear          # 사이드바 '재무 새로고침'이 부르는 캐시 비우기
+
+
+def _compute(code, name="", market=""):
+    """compute 계산 본체(캐시 없음)."""
     _t = time.perf_counter()                                                     # [계측] st 캐시가 없을 때만 찍힌다
     code = str(code).zfill(6)
     print(f"[SUB] indicators.compute 시작(st 캐시 없음) {code} {dl.sub_tag()}", flush=True)  # [계측]

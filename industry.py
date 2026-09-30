@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import requests
 
+import dart_guard
 import keys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -146,9 +147,9 @@ def load_corp_code_map(force=False):
         raise RuntimeError("DART API 키가 없습니다. api_secrets.py의 DART_API_KEY를 채워 주세요.")
 
     _t = time.perf_counter()                                                     # [계측]
-    res = requests.get(
+    res = dart_guard.get(                   # 차단기 경유(불가 상태면 즉시 DartUnavailable). zip 이 커서 읽기만 60초
         "https://opendart.fss.or.kr/api/corpCode.xml",
-        params={"crtfc_key": api_key}, timeout=60,
+        params={"crtfc_key": api_key}, read_timeout=60,
     )
     res.raise_for_status()
 
@@ -179,11 +180,10 @@ def load_corp_code_map(force=False):
 
 def fetch_induty_code(corp_code, api_key, session=None):
     """기업개황 API 1건 호출 -> KSIC 업종코드 문자열. 실패하면 None."""
-    sess = session or requests
     try:
-        res = sess.get(
+        res = dart_guard.get(               # 차단기 경유(연결 3초·읽기 15초, 불가 상태면 즉시 실패 -> None)
             "https://opendart.fss.or.kr/api/company.json",
-            params={"crtfc_key": api_key, "corp_code": corp_code}, timeout=15,
+            params={"crtfc_key": api_key, "corp_code": corp_code}, session=session,
         )
         body = res.json()
         if body.get("status") != "000":
@@ -226,6 +226,8 @@ def build_industry_map(target_df, progress_cb=None):
             progress_cb(i / total, f"업종 수집 {i}/{total}")
         time.sleep(DART_SLEEP)          # 초당 5건 제한
 
+    if not dart_guard.available():      # DART 불가 상태면 '기타'로 채워진 결과를 저장하지 않는다
+        raise RuntimeError(dart_guard.UNAVAILABLE_MESSAGE)
     result = pd.DataFrame(rows)
     result.to_csv(INDUSTRY_CSV, index=False, encoding="utf-8-sig")
     return result

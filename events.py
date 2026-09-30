@@ -67,6 +67,7 @@ import pandas as pd
 import requests
 
 import data as dl
+import dart_guard
 import keys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -272,7 +273,7 @@ def fetch_disclosures(code, start, end):
             params = {"crtfc_key": api_key, "corp_code": corp, "bgn_de": start.strftime("%Y%m%d"),
                       "end_de": end.strftime("%Y%m%d"), "pblntf_ty": kind, "page_no": page, "page_count": 100}
             try:
-                body = requests.get(DART_LIST_URL, params=params, timeout=REQUEST_TIMEOUT).json()
+                body = dart_guard.get(DART_LIST_URL, params=params).json()     # 차단기 경유(연결 3초·읽기 15초)
             except Exception as exc:
                 error = f"{label}: {type(exc).__name__}"
                 break
@@ -792,6 +793,8 @@ def build_events(code, name, market=None, refresh=False, today=None, use_google=
                  "원인확인비율": round(confirmed / len(timeline) * 100, 1) if timeline else None,
                  "뉴스수집": {s: sum(1 for t in timeline if t["뉴스수집"] == s) for s in (NEWS_OK, NEWS_NONE, NEWS_OUT)}},
     }
+    if not dart_guard.available():      # DART 불가 상태에서 만든 결과(공시 누락)는 캐시에 남기지 않는다
+        return result
     try:
         os.makedirs(EVENTS_CACHE_DIR, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
