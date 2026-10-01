@@ -93,12 +93,6 @@ def ksic_to_group(induty_code):
 # 1) 종목코드 -> DART corp_code 매핑 (corpCode.xml, 30일 캐시)
 # ---------------------------------------------------------------------------
 
-def _sub_tag():
-    """[계측] data.sub_tag() (스레드·실행 id)."""
-    import data
-    return data.sub_tag()
-
-
 _corp_csv_map = None                     # corp_code_map.csv 내용(프로세스에서 한 번 읽는다)
 
 
@@ -106,14 +100,11 @@ def _load_corp_csv():
     """data/corp_code_map.csv -> {stock_code: corp_code}. 파일이 없거나 읽지 못하면 빈 dict."""
     global _corp_csv_map
     if _corp_csv_map is None:
-        _ts = time.perf_counter()                                                # [계측]
         try:
             df = pd.read_csv(CORP_CODE_CSV, dtype=str, encoding="utf-8-sig")
             _corp_csv_map = dict(zip(df["stock_code"].str.zfill(6), df["corp_code"].str.zfill(8)))
         except Exception:
             _corp_csv_map = {}
-        print(f"[SUB] 캐시읽기 corp_code_map.csv ({len(_corp_csv_map)}사) {time.perf_counter() - _ts:.2f}s "
-              f"{_sub_tag()}", flush=True)                                       # [계측]
     return _corp_csv_map
 
 
@@ -139,21 +130,16 @@ def load_corp_code_map(force=False):
     if not force and os.path.exists(CORPCODE_PKL):
         age_days = (time.time() - os.path.getmtime(CORPCODE_PKL)) / 86400
         if age_days < CORPCODE_TTL_DAYS:
-            _ts = time.perf_counter()                                            # [계측]
             try:
                 with open(CORPCODE_PKL, "rb") as f:
                     return pickle.load(f)
             except Exception:
                 pass
-            finally:                                                             # [계측]
-                print(f"[SUB] 캐시읽기 corpcode.pkl {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)
-    print(f"[SUB] corpCode 캐시 없음/만료 -> 다운로드 {_sub_tag()}", flush=True)  # [계측]
 
     api_key = keys.get_dart_api_key()
     if not api_key:
         raise RuntimeError("DART API 키가 없습니다. api_secrets.py의 DART_API_KEY를 채워 주세요.")
 
-    _t = time.perf_counter()                                                     # [계측]
     res = dart_guard.get(                   # 차단기 경유(불가 상태면 즉시 DartUnavailable). zip 이 커서 읽기만 60초
         "https://opendart.fss.or.kr/api/corpCode.xml",
         params={"crtfc_key": api_key}, read_timeout=60,
@@ -177,7 +163,6 @@ def load_corp_code_map(force=False):
 
     with open(CORPCODE_PKL, "wb") as f:
         pickle.dump(mapping, f)
-    print(f"[STEP] corpCode - {time.perf_counter() - _t:.2f}s", flush=True)     # [계측] 다운로드했을 때만
     return mapping
 
 
@@ -266,9 +251,7 @@ def ensure_industry(code, name=""):
     조회에 실패하면 저장하지 않고 '기타'를 돌려줘, 나중에 다시 시도할 수 있게 둔다.
     """
     code = str(code).zfill(6)
-    _ts = time.perf_counter()                                                    # [계측]
     imap = load_industry_map()
-    print(f"[SUB] 캐시읽기 industry_map.csv {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     hit = imap[imap["종목코드"] == code] if not imap.empty else imap
     if not imap.empty and not hit.empty:
         return str(hit.iloc[0]["업종그룹"])
@@ -277,32 +260,22 @@ def ensure_industry(code, name=""):
 
     api_key = keys.get_dart_api_key()
     if not api_key:
-        print(f"[SUB] ensure_industry 키 없음 {code} {_sub_tag()}", flush=True)  # [계측]
         return ETC
 
-    _ts = time.perf_counter()                                                    # [계측]
     try:
         corp_code = corp_code_for(code)     # corp_code_map.csv 먼저, 없으면 기존 corpCode 경로
-    except Exception as _exc:
-        print(f"[SUB] corp_code_for 예외 {type(_exc).__name__} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
-              flush=True)                                                        # [계측]
+    except Exception:
         return ETC
-    print(f"[SUB] corp_code_for {code} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
 
     if not corp_code:                       # 우선주·리츠 등 DART 기업개황에 없는 종목
         return ETC
 
-    _ts = time.perf_counter()                                                    # [계측]
     induty = fetch_induty_code(corp_code, api_key)
-    print(f"[SUB] DART company.json {code} {'ok' if induty else '없음'} {time.perf_counter() - _ts:.2f}s "
-          f"{_sub_tag()}", flush=True)                                           # [계측]
     if not induty:
         return ETC
 
     group = ksic_to_group(induty)
-    _ts = time.perf_counter()                                                    # [계측]
     _append_row(code, name or code, induty, group)
-    print(f"[SUB] 캐시쓰기 industry_map.csv {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)  # [계측]
     return group
 
 

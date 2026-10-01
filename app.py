@@ -24,7 +24,6 @@ app.py - 주식 분석 도구 (Streamlit 메인 화면)
 import hmac
 import io
 import os
-import time                                                                      # [계측]
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -280,11 +279,9 @@ def render_financial_section(picked):
     if frame["매출액"].isna().all() and frame["영업이익"].isna().all():
         st.info("차트로 표시할 매출·영업이익 계정이 없습니다.")
     else:
-        _t = time.perf_counter()                                                 # [계측]
         with _chart_box():
             st.plotly_chart(_dark(charts.build_fin_chart(frame, sales_name, height=APP_FIN_HEIGHT)),
                             width=APP_CHART_WIDTH)
-        print(f"[STEP] 차트 렌더(재무) {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
     st.caption(f"출처: 금융감독원 DART, {fin['연결구분'] or '연결'}재무제표 기준 · 단위 억 원 · "
                f"수집 {fin['수집시각']}")
@@ -325,18 +322,14 @@ def render_easy_section(picked):
         st.markdown(f"**{_label(chapter['제목'])}**")
         figure = chapter.get("그림")
         if figure and figure["종류"] == "범위":
-            _t = time.perf_counter()                                             # [계측]
             with _chart_box():
                 st.image(_png_bytes(lambda buf: charts.save_range_png(figure["최저"], figure["최고"], figure["현재가"],
                                                                        buf, title=figure["제목"], app=True)),
                          width=APP_CHART_WIDTH)
-            print(f"[STEP] 차트 렌더(52주 범위) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         elif figure and figure["종류"] == "수익률" and figure["항목"]:
-            _t = time.perf_counter()                                             # [계측]
             with _chart_box():
                 st.image(_png_bytes(lambda buf: charts.save_returns_png(figure["항목"], buf, app=True)),
                          width=APP_CHART_WIDTH)
-            print(f"[STEP] 차트 렌더(수익률) {code} {time.perf_counter() - _t:.2f}s", flush=True)    # [계측]
         st.write("\n\n".join(chapter["문장"]))
     st.markdown(f"**{_label(easy_read.TABLE_TITLE)}**")
     st.dataframe(pd.DataFrame(result["풀이표"], columns=[_label(c) for c in ("지표", "이 종목 값", "뜻")]),
@@ -349,28 +342,17 @@ def render_easy_section(picked):
 
 def render_direction_box(picked):
     """종목 분석 탭 맨 위: 신호 3개(가격 추세 / 실적 흐름 / 거래 관심도) + 종합 상태(지침 5.1~5.4)."""
-    _t = time.perf_counter()                                                     # [계측] 지표·재무 조회 포함
     code = str(picked["종목코드"])
     ind = indicators.compute(code, picked["종목명"], picked["시장"])
-    print(f"[SUB] indicators.compute(호출, st 캐시 대기 포함) {code} {time.perf_counter() - _t:.2f}s {dl.sub_tag()}",
-          flush=True)                                                            # [계측]
     if ind is None:
-        print(f"[STEP] 방향 지시계(지표 없음) {code} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return
     fin = None
-    _ts = time.perf_counter()                                                    # [계측]
     if financials.fin_enabled():
-        print(f"[SUB] keys.has_dart_key {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
-        _ts = time.perf_counter()                                                # [계측]
         try:
             fin = financials.load_financials(code, picked["종목명"])
         except Exception:
             fin = None
-        print(f"[SUB] load_financials(방향 지시계) {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}",
-              flush=True)                                                        # [계측]
-    _ts = time.perf_counter()                                                    # [계측]
     box = direction.indicator(ind, fin)
-    print(f"[SUB] direction.indicator {code} {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
     with st.container(border=True, key="card_direction"):     # key: 카드 배경·판정 강조색(APP_THEME_CSS)
         st.markdown(f"**방향 지시계** · 기준일 {ind['기준일']}")
         cols = st.columns(3)
@@ -385,7 +367,6 @@ def render_direction_box(picked):
             col.caption(sig["근거"])
         st.markdown(f"**<span class='dir-overall'>종합 상태: {box['종합 상태']}</span>**", unsafe_allow_html=True)
         st.caption(f"리포트 구성 지침 {direction.REPORT_GUIDE_VERSION} 규칙으로 파이썬이 판정(AI 미사용)")
-    print(f"[STEP] 방향 지시계 {code} {time.perf_counter() - _t:.2f}s", flush=True)   # [계측]
 
 
 FACT_GROUP = "사실 문장"          # indicators.to_table 의 AI 입력 근거 행(구분 열 값) - 화면에서 뺀다
@@ -436,11 +417,9 @@ def render_stock_tab(picked, period_label):
     c4.metric("평균 거래량", f"{info['평균거래량']:,.0f}주")
     st.caption(PRICE_CAPTION)
 
-    _t = time.perf_counter()                                                     # [계측]
     with _chart_box():
         st.plotly_chart(_dark(charts.build_price_chart(df, f"{picked['종목명']} 일봉 ({period_label})",
                                                        height=APP_PRICE_HEIGHT)), width=APP_CHART_WIDTH)
-    print(f"[STEP] 차트 렌더(가격) {picked['종목코드']} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
 
     with st.expander("원본 데이터 보기 (최근 10일)"):
         st.dataframe(df.tail(10).iloc[::-1].style.format("{:,.0f}"), width="stretch")
@@ -923,9 +902,6 @@ def main():
     st.html(APP_FONT_CSS + APP_THEME_CSS + APP_TEXT_CSS)    # 본문 11pt·다크 테마·제목 색·줄간격(화면 전용, 자리 차지 없음)
     if not password_gate():
         return
-    _t = time.perf_counter()                                                     # [계측]
-    dl.RUN_ID = time.strftime("%H%M%S") + f".{int(time.time() * 1000) % 1000:03d}"   # [계측] 실행마다 새 id
-    print(f"[SUB] 실행 시작 {dl.sub_tag()}", flush=True)                          # [계측]
     st.session_state[financials.RUN_MEMO_KEY] = {}     # 이번 실행 안에서만 load_financials 결과 재사용(다음 실행엔 새로)
     st.session_state["_card_n"] = 0                    # 차트 카드 key 번호(실행마다 0부터)
     st.title("📈 주식 분석 도구")
@@ -947,8 +923,6 @@ def main():
         render_holdings_tab()
     else:
         render_stock_tab(picked, period_label)
-    print(f"[STEP] 화면 전체({view}) {picked['종목코드'] if picked is not None else '-'} "
-          f"{time.perf_counter() - _t:.2f}s", flush=True)                        # [계측]
 
 
 if __name__ == "__main__":

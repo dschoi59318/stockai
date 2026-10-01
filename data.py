@@ -22,7 +22,6 @@ data.py - 종목 목록 / 시세 / 히트맵용 데이터 수집 담당
 import os
 import time
 import pickle
-import threading                                                                 # [계측]
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone, time as dtime
 
@@ -45,24 +44,12 @@ _original_session_request = requests.Session.request
 def _session_request_with_timeout(self, *args, **kwargs):
     """requests 세션 요청에 기본 timeout을 끼워 넣는다."""
     kwargs.setdefault("timeout", REQUEST_TIMEOUT)
-    _t = time.perf_counter()                                                     # [계측]
-    try:
-        return _original_session_request(self, *args, **kwargs)
-    finally:                                                                     # [계측] 호스트+경로만(쿼리·키 제외)
-        print(f"[NET] {str(args[1] if len(args) > 1 else kwargs.get('url', '')).split('?')[0].split('://')[-1]}"
-              f" {time.perf_counter() - _t:.2f}s", flush=True)
+    return _original_session_request(self, *args, **kwargs)
 
 
 if getattr(requests.Session.request, "__name__", "") != "_session_request_with_timeout":
     requests.Session.request = _session_request_with_timeout
 
-# [계측] [SUB] 줄 꼬리표: 스레드 이름 + 실행 id(스크립트 재실행 구분). RUN_ID 는 app.main 이 실행마다 바꾼다.
-RUN_ID = "-"
-
-
-def sub_tag():
-    """[계측] '[SUB] ...' 줄 끝에 붙일 'thread=… run=…' 문자열."""
-    return f"thread={threading.current_thread().name} run={RUN_ID}"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -173,9 +160,7 @@ def ensure_stock_master():
     """
     if master_updated_date() == datetime.today().date():
         return {"시도": False, "성공": True, "문구": "", "날짜": master_updated_date()}
-    _t = time.perf_counter()                                                     # [계측]
     ok, message = refresh_stock_master()
-    print(f"[STEP] 종목목록 갱신 - {time.perf_counter() - _t:.2f}s", flush=True)     # [계측]
     return {"시도": True, "성공": ok, "문구": message, "날짜": master_updated_date()}
 
 
@@ -193,9 +178,7 @@ def load_ticker_list():
     반환 컬럼: 종목코드 / 종목명 / 시장. 파일이 없으면 한 번 받아 보고, 그래도 없으면 빈 표.
     """
     if not os.path.exists(STOCK_MASTER_CSV):
-        _t = time.perf_counter()                                                 # [계측]
         refresh_stock_master()
-        print(f"[STEP] 종목목록 - {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     if not os.path.exists(STOCK_MASTER_CSV):
         return pd.DataFrame(columns=["종목코드", "종목명", "시장"])
     try:
@@ -318,15 +301,11 @@ def fetch_ohlcv_raw(code, start_date, end_date):
 
     지침 v1.4 5.0: session_cutoff() 뒤의 일봉(15:40 이전 실행 시 당일 장중 일봉)은 잘라 낸다.
     """
-    _t = time.perf_counter()                                                     # [계측]
     for loader in (_ohlcv_pykrx, _ohlcv_fdr):
-        _ts = time.perf_counter()                                                # [계측]
         try:
             raw = loader(code, start_date, end_date)
         except Exception:
             raw = None
-        print(f"[SUB] {'pykrx.get_market_ohlcv' if loader is _ohlcv_pykrx else 'fdr.DataReader'} {code} "
-              f"{time.perf_counter() - _ts:.2f}s {sub_tag()}", flush=True)       # [계측]
         if raw is not None and not raw.empty:
             df = raw.copy()
             df.index = pd.to_datetime(df.index)
@@ -336,9 +315,7 @@ def fetch_ohlcv_raw(code, start_date, end_date):
             df = df[df["종가"] > 0]
             df = trim_to_session(df)
             if not df.empty:
-                print(f"[STEP] 시세 {code} {time.perf_counter() - _t:.2f}s", flush=True)            # [계측]
                 return df
-    print(f"[STEP] 시세(실패) {code} {time.perf_counter() - _t:.2f}s", flush=True)                # [계측]
     return pd.DataFrame()
 
 
@@ -501,17 +478,14 @@ def get_top_marcap(market, top_n=TOP_N):
     반환 컬럼의 '시가총액'은 순위용 값이다. 히트맵 박스 크기는 build_market_heatmap_data에서
     상장주식수 x 기준일 종가로 다시 계산한다.
     """
-    _t = time.perf_counter()                                                     # [계측]
     snapshot = load_market_snapshot()
     if snapshot.empty:
-        print(f"[STEP] 시총순위(실패) {market} {time.perf_counter() - _t:.2f}s", flush=True)      # [계측]
         return snapshot
     part = snapshot[snapshot["시장"] == market].copy()
     if part["시가총액"].notna().sum() < min(top_n, len(part)) // 2:        # FDR 시가총액이 비었다
         closes = _recent_closes()
         part["시가총액"] = part["상장주식수"] * part["종목코드"].map(closes)
     part = part.dropna(subset=["시가총액"])
-    print(f"[STEP] 시총순위 {market} {time.perf_counter() - _t:.2f}s", flush=True)                # [계측]
     return part.nlargest(top_n, "시가총액").reset_index(drop=True)
 
 
@@ -558,18 +532,13 @@ def load_ohlcv_bulk(codes, progress_cb=None):
     반환: {종목코드: 일봉 DataFrame}
     """
     codes = [str(c).zfill(6) for c in codes]
-    _ts = time.perf_counter()                                                    # [계측]
     store = _load_day_cache()
-    print(f"[SUB] 캐시읽기 ohlcv_close.pkl ({len(store)}종목) {time.perf_counter() - _ts:.2f}s {sub_tag()}",
-          flush=True)                                                            # [계측]
 
     todo = [c for c in codes if c not in store]
     if not todo:
         if progress_cb:
             progress_cb(1.0, "캐시 재사용 " + str(len(codes)) + "종목")
         return {c: store[c] for c in codes if c in store}
-    print(f"[SUB] load_ohlcv_bulk 새로 받을 종목 {len(todo)}/{len(codes)} {sub_tag()}", flush=True)  # [계측]
-    _tb = time.perf_counter()                                                    # [계측]
 
     end_date = datetime.combine(session_cutoff(), dtime(23, 59))
     start_date = end_date - timedelta(days=400)     # 1년 + 여유
@@ -579,9 +548,7 @@ def load_ohlcv_bulk(codes, progress_cb=None):
 
         너무 빠르게 연속 요청하면 거래소가 응답을 끊으므로 요청 사이에 잠깐 쉰다.
         """
-        _tz = time.perf_counter()                                                # [계측]
         time.sleep(REQUEST_DELAY)
-        print(f"[SUB] time.sleep(REQUEST_DELAY) {code} {time.perf_counter() - _tz:.2f}s {sub_tag()}", flush=True)  # [계측]
         try:
             return code, fetch_ohlcv_raw(code, start_date, end_date)
         except Exception:
@@ -595,12 +562,8 @@ def load_ohlcv_bulk(codes, progress_cb=None):
             done += 1
             if progress_cb and (done % 5 == 0 or done == len(todo)):
                 progress_cb(done / len(todo), "일봉 수집 " + str(done) + "/" + str(len(todo)) + "종목")
-    print(f"[SUB] load_ohlcv_bulk 병렬수집 {len(todo)}종목 {time.perf_counter() - _tb:.2f}s {sub_tag()}", flush=True)  # [계측]
 
-    _ts = time.perf_counter()                                                    # [계측]
     _save_day_cache(store)
-    print(f"[SUB] 캐시쓰기 ohlcv_close.pkl ({len(store)}종목) {time.perf_counter() - _ts:.2f}s {sub_tag()}",
-          flush=True)                                                            # [계측]
     return {c: store[c] for c in codes if c in store}
 
 
@@ -636,10 +599,8 @@ def build_market_heatmap_data(market, period_label, progress_cb=None):
     """
     import industry
 
-    _t = time.perf_counter()                                                     # [계측]
     top = get_top_marcap(market)
     if top.empty:
-        print(f"[STEP] 히트맵 데이터(실패) {market} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
         return pd.DataFrame(), ""
 
     days, _clip = HEATMAP_PERIODS.get(period_label, (1, 3.0))
@@ -674,7 +635,6 @@ def build_market_heatmap_data(market, period_label, progress_cb=None):
             "기준일": result["종목코드"].map(dict(zip(top["종목코드"], days_seen))),
         }))
     result = industry.attach_industry(result)       # 업종그룹 컬럼 붙이기
-    print(f"[STEP] 히트맵 데이터 {market}/{period_label} {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
     return result.reset_index(drop=True), base_date
 
 
@@ -827,7 +787,6 @@ def build_holdings_heatmap_data(holdings):
     if holdings is None or holdings.empty:
         return pd.DataFrame(), {}
 
-    _t = time.perf_counter()                                                     # [계측]
     rows = []
     for _, row in holdings.iterrows():
         code = str(row["종목코드"]).zfill(6)
@@ -868,5 +827,4 @@ def build_holdings_heatmap_data(holdings):
         "당일손익": float(result["당일손익"].sum()),
         "기준일": result["최근일자"].max(),
     }
-    print(f"[STEP] 히트맵 데이터 보유종목 {time.perf_counter() - _t:.2f}s", flush=True)            # [계측]
     return result, summary

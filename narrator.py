@@ -56,7 +56,6 @@ import io
 import json
 import os
 import re
-import time                                                                      # [계측]
 from datetime import datetime
 
 import direction
@@ -925,10 +924,8 @@ def _call_claude(model, system, user):
     for candidate in candidates:
         try:
             extra = {"output_config": {"effort": SONNET_EFFORT}} if model == SONNET else {}
-            _t = time.perf_counter()                                             # [계측]
             r = client.messages.create(model=candidate, max_tokens=MAX_TOKENS[model], system=system,
                                        messages=[{"role": "user", "content": user}], **extra)
-            print(f"[NET] api.anthropic.com/v1/messages({candidate}) {time.perf_counter() - _t:.2f}s", flush=True)  # [계측]
             text = "".join(b.text for b in r.content if b.type == "text")
             details = getattr(r.usage, "output_tokens_details", None)
             thinking = (getattr(details, "thinking_tokens", 0) or 0) if details else 0
