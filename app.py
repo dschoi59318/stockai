@@ -35,6 +35,7 @@ import dart_guard
 import data as dl
 import direction
 import easy_read
+import fin_store
 import financials
 import heatmap as hm
 import indicators
@@ -224,11 +225,16 @@ def render_financial_section(picked):
     st.divider()
     st.subheader("📊 재무")
 
-    if not keys.has_dart_key():
+    if not financials.fin_enabled():
         st.info("DART API 키가 없어 재무 정보를 표시할 수 없습니다. api_secrets.py의 DART_API_KEY를 채워 주세요.")
         return
 
     code = str(picked["종목코드"])
+    if fin_store.is_store_mode():           # 저장본 모드(클라우드): DART 대신 재무 저장본을 읽는다
+        st.caption(f"재무 자료: 저장본 {fin_store.store_date() or '-'} 기준")
+        if financials.store_missing(code):
+            st.info(fin_store.NOT_IN_STORE_MESSAGE)
+            return
     with st.spinner("DART 재무 데이터를 불러오는 중입니다..."):
         fin = financials.load_financials(code, picked["종목명"])
 
@@ -306,7 +312,7 @@ def render_easy_section(picked):
         st.info("지표를 계산할 데이터가 부족합니다.")
         return
     fin = None
-    if keys.has_dart_key():
+    if financials.fin_enabled():
         try:
             fin = financials.load_financials(code, picked["종목명"])
         except Exception:
@@ -353,7 +359,7 @@ def render_direction_box(picked):
         return
     fin = None
     _ts = time.perf_counter()                                                    # [계측]
-    if keys.has_dart_key():
+    if financials.fin_enabled():
         print(f"[SUB] keys.has_dart_key {time.perf_counter() - _ts:.2f}s {dl.sub_tag()}", flush=True)  # [계측]
         _ts = time.perf_counter()                                                # [계측]
         try:
@@ -372,6 +378,8 @@ def render_direction_box(picked):
             sig = box[key] or {"판정": "판정 불가", "근거": "이동평균을 계산할 데이터가 부족합니다"}
             if key == "실적 흐름" and _dart_missing(fin):      # DART 연결 불가(일시적) 안내
                 sig = {"판정": sig["판정"], "근거": dart_guard.UNAVAILABLE_MESSAGE}
+            elif key == "실적 흐름" and financials.store_missing(code):   # 저장본 모드: 저장본에 없는 종목
+                sig = {"판정": sig["판정"], "근거": fin_store.NOT_IN_STORE_MESSAGE}
             col.caption(key)
             col.markdown(f"### {sig['판정']}")
             col.caption(sig["근거"])
@@ -491,6 +499,9 @@ def render_report_section(picked):
     """'Word 리포트 생성' 버튼: 파이썬 판정 + AI 해설 3개(입력 해시가 같은 저장본은 재사용)."""
     st.divider()
     st.subheader("📄 Word 리포트")
+    if fin_store.is_store_mode():           # 저장본 모드(클라우드): 리포트 생성은 PC 앱에서만
+        st.info("리포트는 PC 앱에서 생성할 수 있습니다.")
+        return
     code = str(picked["종목코드"])
     state_key = f"report::{code}"
     try:
@@ -841,7 +852,8 @@ def render_sidebar():
     imap = industry.load_industry_map()
     st.sidebar.caption(f"매핑된 종목 {len(imap)}개 · 업종그룹 {imap['업종그룹'].nunique() if not imap.empty else 0}개")
 
-    if st.sidebar.button("업종 정보 갱신", help="DART 기업개황 API로 업종을 다시 수집합니다(수 분 소요)"):
+    if not fin_store.is_store_mode() and st.sidebar.button(     # 저장본 모드에서는 숨김(DART 호출)
+            "업종 정보 갱신", help="DART 기업개황 API로 업종을 다시 수집합니다(수 분 소요)"):
         if not keys.has_dart_key():
             st.sidebar.error("DART API 키가 없습니다. api_secrets.py의 DART_API_KEY를 채워 주세요.")
         else:
@@ -859,8 +871,10 @@ def render_sidebar():
     # --- 재무 ---
     st.sidebar.divider()
     st.sidebar.subheader("재무")
-    if st.sidebar.button("재무 새로고침", disabled=picked is None,
-                         help="선택 종목의 DART 재무 캐시를 지우고 다시 수집합니다"):
+    if fin_store.is_store_mode():           # 저장본 모드: 새로고침 버튼 숨김(DART 호출), 저장본 날짜만 안내
+        st.sidebar.caption(f"재무 자료: 저장본 {fin_store.store_date() or '-'} 기준")
+    elif st.sidebar.button("재무 새로고침", disabled=picked is None,
+                           help="선택 종목의 DART 재무 캐시를 지우고 다시 수집합니다"):
         if not dart_guard.available():      # 연결 불가 중에 지우면 다시 받을 수 없으므로 캐시를 그대로 둔다
             st.sidebar.warning(f"DART 서버에 연결할 수 없는 상태라 재무 캐시를 지우지 않았습니다. "
                                f"약 {dart_guard.remaining() / 60:.0f}분 뒤 다시 눌러 주세요.")

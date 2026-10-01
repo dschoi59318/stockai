@@ -261,6 +261,9 @@ def fetch_disclosures(code, start, end):
     반환: {"목록": [{"날짜", "분류", "중요도", "제목", "접수번호", "제출인"}], "제외": 건수, "오류": 문자열|None}
     """
     import financials
+    import fin_store
+    if fin_store.is_store_mode():           # 저장본 모드(클라우드): DART 공시를 부르지 않는다
+        return {"목록": [], "제외": 0, "오류": "저장본 모드: DART 공시 미조회"}
     api_key = keys.get_dart_api_key()
     corp = financials._corp_code(code)
     if not api_key or not corp:
@@ -794,6 +797,9 @@ def build_events(code, name, market=None, refresh=False, today=None, use_google=
                  "뉴스수집": {s: sum(1 for t in timeline if t["뉴스수집"] == s) for s in (NEWS_OK, NEWS_NONE, NEWS_OUT)}},
     }
     if not dart_guard.available():      # DART 불가 상태에서 만든 결과(공시 누락)는 캐시에 남기지 않는다
+        return result
+    import fin_store
+    if fin_store.is_store_mode():       # 저장본 모드 결과(공시 미조회)도 캐시에 남기지 않는다(PC 캐시와 섞이지 않게)
         return result
     try:
         os.makedirs(EVENTS_CACHE_DIR, exist_ok=True)

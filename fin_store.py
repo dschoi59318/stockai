@@ -4,7 +4,8 @@ fin_store.py - 재무 저장본(data/fin_store) 형식·경로·읽기 (2026-09-
 
 배경: 클라우드(해외 IP)는 DART 가 ConnectTimeout 으로 막힌다. PC(한국 IP)의 fin_update.py 가 전 종목 재무를 받아
       여기 형식으로 저장하고, 클라우드는 (다음 단계에서) DART 호출 없이 이 파일만 읽는다.
-이번 단계: read_report 는 검증용이다. 앱(financials.fetch_report)에는 아직 연결하지 않았다.
+2026-10-01: 재무 읽기 모드(FIN_MODE) 추가. FIN_MODE="store"(클라우드)면 financials·industry·events 가 DART 를 부르지 않고
+            로컬 캐시 -> 이 저장본 순서로만 읽는다. FIN_MODE 가 없으면(PC) 기존과 같다(DART 호출 + 캐시).
 
 파일 (data/fin_store/)
  main_{연도}_{보고서}.parquet : 주요계정(fnlttMultiAcnt). 회사별 CFS·OFS 행
@@ -22,6 +23,7 @@ fin_store.py - 재무 저장본(data/fin_store) 형식·경로·읽기 (2026-09-
 
 import json
 import os
+import threading
 
 import pandas as pd
 
@@ -43,6 +45,57 @@ ALL_SJ = ("IS", "CIS", "BS")        # 전체 재무제표에서 남기는 표(SC
 KINDS = {"main": MAIN_FIELDS, "all": ALL_FIELDS}
 
 MANIFEST_COLUMNS = ["corp_code", "kind", "year", "reprt", "status", "rcept_no", "checked"]
+
+# 재무 읽기 모드: st.secrets 또는 환경변수 FIN_MODE. "store" 면 저장본 모드, 없으면 PC 모드(기존 그대로)
+FIN_MODE_STORE = "store"
+NOT_IN_STORE_MESSAGE = "이 종목은 재무 저장본에 아직 없습니다(신규 상장 등). 다음 재무 갱신 때 추가됩니다."
+
+_mode_cache = {}
+_store_info = {}                    # 저장본 회사 목록·기준일(프로세스에서 한 번 읽는다)
+_store_lock = threading.Lock()
+
+
+def fin_mode():
+    """재무 읽기 모드 문자열(소문자). 환경변수 FIN_MODE -> st.secrets FIN_MODE 순서, 없으면 ''(PC). 프로세스에서 한 번 정한다."""
+    if "mode" not in _mode_cache:
+        value = os.environ.get("FIN_MODE")
+        if not value:
+            try:
+                import streamlit as st
+                value = st.secrets.get("FIN_MODE")
+            except Exception:
+                value = None
+        _mode_cache["mode"] = str(value or "").strip().lower()
+    return _mode_cache["mode"]
+
+
+def is_store_mode():
+    """저장본 모드(클라우드)인가. True 면 재무·업종·공시에서 DART 를 부르지 않는다."""
+    return fin_mode() == FIN_MODE_STORE
+
+
+def _load_store_info(store_dir=STORE_DIR):
+    """_manifest.csv -> {"회사": 정상(000) 보고서가 1건 이상인 corp_code 집합, "기준일": 'YYYY-MM-DD' 또는 None}."""
+    with _store_lock:
+        if store_dir not in _store_info:
+            manifest = load_manifest(store_dir)
+            ok = manifest[manifest["status"] == "000"] if not manifest.empty else manifest
+            checked = manifest["checked"][manifest["checked"] != ""] if not manifest.empty else None
+            _store_info[store_dir] = {
+                "회사": set(ok["corp_code"].str.zfill(8)) if not ok.empty else set(),
+                "기준일": str(checked.max())[:10] if checked is not None and not checked.empty else None,
+            }
+        return _store_info[store_dir]
+
+
+def store_date(store_dir=STORE_DIR):
+    """저장본 기준일(_manifest 의 가장 늦은 확인 시각의 날짜). 없으면 None."""
+    return _load_store_info(store_dir)["기준일"]
+
+
+def has_company(corp_code, store_dir=STORE_DIR):
+    """저장본에 이 회사의 정상(000) 재무 보고서가 1건 이상 있는가(corp_code 가 없으면 False)."""
+    return bool(corp_code) and str(corp_code).zfill(8) in _load_store_info(store_dir)["회사"]
 
 
 def partition_name(kind, year, reprt):
@@ -88,7 +141,7 @@ def load_manifest(store_dir=STORE_DIR):
 
 
 def read_report(code, year, reprt, fs_div=None, store_dir=STORE_DIR, targets=None):
-    """저장본에서 보고서 1건을 읽어 financials.fetch_report 와 같은 모양으로 돌려준다(검증용, 앱 미연결).
+    """저장본에서 보고서 1건을 읽어 financials.fetch_report 와 같은 모양으로 돌려준다(저장본 모드에서 fetch_report 가 쓴다).
 
     fs_div='CFS' 면 전체 재무제표, 없으면 주요계정. 저장본에 없거나 013(미공시)이면 None(fetch_report 와 같음).
     반환: {"status": "000", "message": "정상", "list": [행 dict, ...]}  (행에는 저장한 필드 중 값이 있는 것만)

@@ -8,6 +8,8 @@ industry.py - 업종 매핑 생성/조회
  3) data/industry_map.csv 에 저장한다.
 
 앱은 평소 CSV만 읽고, 사이드바의 "업종 정보 갱신" 버튼을 눌렀을 때만 DART를 다시 호출한다.
+저장본 모드(FIN_MODE=store, 클라우드)에서는 DART 를 전혀 부르지 않는다: corp_code 는 corp_code_map.csv 만,
+업종은 industry_map.csv 만 본다(없으면 '기타', 저장하지 않음).
 """
 
 import io
@@ -21,6 +23,7 @@ import pandas as pd
 import requests
 
 import dart_guard
+import fin_store
 import keys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -121,11 +124,15 @@ def corp_code_for(code):
     hit = _load_corp_csv().get(code)
     if hit:
         return hit
+    if fin_store.is_store_mode():           # 저장본 모드: corp_code_map.csv 만 본다
+        return None
     return load_corp_code_map().get(code)
 
 
 def load_corp_code_map(force=False):
     """DART corpCode.xml(zip)을 받아 {종목코드: corp_code} 딕셔너리를 만든다(30일 캐시)."""
+    if fin_store.is_store_mode():           # 저장본 모드: corpCode.xml 을 받지 않는다(corp_code_map.csv 만)
+        return {}
     _ensure_dirs()
 
     # 캐시가 30일 이내면 그대로 사용
@@ -205,6 +212,8 @@ def build_industry_map(target_df, progress_cb=None):
     if not api_key:
         raise RuntimeError("DART API 키가 없습니다.")
 
+    if fin_store.is_store_mode():           # 저장본 모드: 업종 갱신(DART)은 PC 에서만 한다
+        raise RuntimeError("저장본 모드에서는 업종 정보를 갱신하지 않습니다(PC 에서 갱신).")
     session = requests.Session()
 
     rows = []
@@ -263,6 +272,8 @@ def ensure_industry(code, name=""):
     hit = imap[imap["종목코드"] == code] if not imap.empty else imap
     if not imap.empty and not hit.empty:
         return str(hit.iloc[0]["업종그룹"])
+    if fin_store.is_store_mode():           # 저장본 모드: DART 기업개황을 부르지 않고 저장도 하지 않는다
+        return ETC
 
     api_key = keys.get_dart_api_key()
     if not api_key:

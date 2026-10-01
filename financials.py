@@ -67,6 +67,7 @@ import requests
 import streamlit as st
 
 import dart_guard
+import fin_store
 import keys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -142,7 +143,10 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
     """DART 보고서 1건을 받아온다(파일 캐시, 만료 없음). 실패하면 None.
 
     fs_div를 주면 전체 재무제표(fnlttSinglAcntAll)를, 없으면 주요계정(fnlttSinglAcnt)을 받는다.
+    저장본 모드(FIN_MODE=store)에서는 DART 를 부르지 않고 _fetch_report_store 로 읽는다.
     """
+    if fin_store.is_store_mode():
+        return _fetch_report_store(corp_code, code, year, reprt, fs_div)
     _ensure_dir()
     path = _cache_path(code, reprt, year, fs_div)
     _tag = f"{str(code).zfill(6)} {year} {reprt}{' ' + fs_div if fs_div else ''}"         # [계측]
@@ -205,6 +209,45 @@ def fetch_report(corp_code, code, year, reprt, refresh=False, fs_div=None):
         pass
     print(f"[SUB] 캐시쓰기 fin {_tag} {time.perf_counter() - _ts:.2f}s {_sub_tag()}", flush=True)   # [계측]
     return body
+
+
+def _fetch_report_store(corp_code, code, year, reprt, fs_div=None):
+    """저장본 모드의 fetch_report: 로컬 캐시 -> 재무 저장본(data/fin_store) 순서. DART 는 부르지 않고 아무것도 쓰지 않는다.
+
+    corp_code 는 호출 쪽이 corp_code_map.csv 로 찾은 값만 쓴다(저장본 _targets.csv 는 보지 않는다).
+    반환 모양은 fetch_report 와 같다({status, message, list}). 없거나 미공시(013)면 None.
+    """
+    path = _cache_path(code, reprt, year, fs_div)
+    _tag = f"{str(code).zfill(6)} {year} {reprt}{' ' + fs_div if fs_div else ''}"         # [계측]
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    if not corp_code:
+        return None
+    _ts = time.perf_counter()                                                    # [계측]
+    try:
+        body = fin_store.read_report(code, year, reprt, fs_div, targets={str(code).zfill(6): corp_code})
+    except Exception as _exc:
+        print(f"[SUB] 저장본읽기 fin {_tag} 예외 {type(_exc).__name__} {_sub_tag()}", flush=True)  # [계측]
+        return None
+    print(f"[SUB] 저장본읽기 fin {_tag} {'ok' if body else '없음'} {time.perf_counter() - _ts:.2f}s {_sub_tag()}",
+          flush=True)                                                            # [계측]
+    return body
+
+
+def store_missing(code):
+    """저장본 모드에서 이 종목의 재무가 저장본에 없으면 True(PC 모드는 항상 False) -> 화면에 저장본 없음 안내."""
+    if not fin_store.is_store_mode():
+        return False
+    return not fin_store.has_company(_corp_code(code))
+
+
+def fin_enabled():
+    """재무를 불러올 수 있는 환경인가: 저장본 모드이거나 DART 키가 있으면 True(PC 모드는 기존 has_dart_key 그대로)."""
+    return fin_store.is_store_mode() or keys.has_dart_key()
 
 
 def _rows(body, fs_div):
@@ -1189,7 +1232,7 @@ def ai_block(code, name="", industry_group=None):
         재무상태 비율(최근 분기말):  부채비율, PBR
     재무 데이터가 없거나 '데이터 부족'이면 {"가능": False, "사유": ...} 만 돌려준다.
     """
-    if not keys.has_dart_key():
+    if not fin_enabled():
         return {"가능": False, "사유": "DART API 키가 없어 재무 데이터를 제공하지 않음"}
     try:
         fin = load_financials(str(code).zfill(6), name)
