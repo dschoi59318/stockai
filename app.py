@@ -929,7 +929,7 @@ def main():
     st.session_state[financials.RUN_MEMO_KEY] = {}     # 이번 실행 안에서만 load_financials 결과 재사용(다음 실행엔 새로)
     st.session_state["_card_n"] = 0                    # 차트 카드 key 번호(실행마다 0부터)
     st.title("📈 주식 분석 도구")
-    st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 Claude 해설 리포트를 제공합니다.")
+    st.caption("코스피·코스닥 종목의 일봉 시세와 시장/보유종목 히트맵, 규칙 기반 판정과 AI 해설 리포트를 제공합니다.")
 
     # 종목 마스터: 세션마다 한 번, 파일 날짜가 오늘이 아니면 갱신을 시도한다(실패하면 기존 파일 사용).
     if "master_status" not in st.session_state:
