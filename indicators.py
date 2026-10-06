@@ -203,7 +203,7 @@ def _industry_block(code, name="", base_date=None):
     if group == industry.ETC:
         return {"가능": False, "사유": "업종 비교 불가 (업종 정보를 확인할 수 없음)", "업종그룹": group}
 
-    base_date = pd.Timestamp(base_date or datetime.today()).normalize()
+    base_date = pd.Timestamp(base_date or dl.now_kst().date()).normalize()     # 한국시간 날짜(서버 시간대 무관)
     imap = _industry_snapshot(base_date)
     if imap.empty:
         return {"가능": False, "사유": "업종 비교 불가 (업종 매핑 파일 없음)", "업종그룹": group}
