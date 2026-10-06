@@ -39,6 +39,7 @@ import financials
 import heatmap as hm
 import indicators
 import industry
+import intraday
 import keys
 import narrator
 import report
@@ -385,6 +386,17 @@ def render_indicator_section(picked):
     st.dataframe(table[table["구분"] != FACT_GROUP], width="stretch", hide_index=True, height=430)
 
 
+def render_intraday_line(picked, base_date):
+    """종목명 제목 바로 아래 장중 참고 한 줄(거래일 09:00~15:40 KST, 조회 성공 시만). 판정·수치는 그대로 종가 기준."""
+    q = intraday.quote_line(picked["종목코드"], base_date)
+    if q is None:
+        return
+    head, price, tail = intraday.format_line(q)
+    color = APP_UP if q["전일대비"] > 0 else APP_DOWN if q["전일대비"] < 0 else APP_MUTED_COLOR
+    st.markdown(f"<p style='font-size:11pt; color:{APP_MUTED_COLOR}; margin:0'>{head}"
+                f"<span style='color:{color}'>{price}</span>{tail}</p>", unsafe_allow_html=True)
+
+
 def render_stock_tab(picked, period_label):
     """[1단계 + 3단계] 종목 분석 탭 본문을 그린다."""
     if picked is None:
@@ -406,6 +418,7 @@ def render_stock_tab(picked, period_label):
         return
 
     st.subheader(f"{picked['종목명']} ({picked['종목코드']}, {picked['시장']})")
+    render_intraday_line(picked, info["최근일자"])
     render_direction_box(picked)
     st.caption(f"기준일 {info['최근일자']} · 조회기간 {period_label} · 거래일 {len(df)}일")
 
