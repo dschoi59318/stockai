@@ -126,10 +126,10 @@ def _fetch_master():
 
 
 def master_updated_date():
-    """마스터 파일의 마지막 갱신일(date). 파일이 없으면 None."""
+    """마스터 파일의 마지막 갱신일(date, 한국시간). 파일이 없으면 None."""
     if not os.path.exists(STOCK_MASTER_CSV):
         return None
-    return datetime.fromtimestamp(os.path.getmtime(STOCK_MASTER_CSV)).date()
+    return datetime.fromtimestamp(os.path.getmtime(STOCK_MASTER_CSV), KST).date()
 
 
 def refresh_stock_master():
@@ -158,7 +158,7 @@ def ensure_stock_master():
 
     반환: {"시도": bool, "성공": bool, "문구": str, "날짜": date|None}
     """
-    if master_updated_date() == datetime.today().date():
+    if master_updated_date() == now_kst().date():
         return {"시도": False, "성공": True, "문구": "", "날짜": master_updated_date()}
     ok, message = refresh_stock_master()
     return {"시도": True, "성공": ok, "문구": message, "날짜": master_updated_date()}

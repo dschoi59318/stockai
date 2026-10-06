@@ -67,6 +67,7 @@ import requests
 import streamlit as st
 
 import dart_guard
+import data as dl
 import fin_store
 import keys
 
@@ -891,7 +892,7 @@ def load_financials(code, name="", refresh=False):
         "계절성연도": season,                 # 지침 v1.4 5.10: {연도: 1~4분기}
         "매출계정명": annual.get("매출계정명"),
         "비율": ratios,
-        "수집시각": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "수집시각": dl.now_kst().strftime("%Y-%m-%d %H:%M:%S"),     # 화면 출처 줄: 서버 시간대와 무관하게 한국시간
     }
     if memo is not None:
         memo[memo_key] = copy.deepcopy(result)
