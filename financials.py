@@ -410,7 +410,7 @@ def _controlling(corp, code, year, reprt, fs_div, main_rows, refresh=False):
 
 def latest_annual_year(today=None):
     """조회 가능한 가장 최근 '사업연도'. (사업보고서는 다음 해 3월 말 공시)"""
-    today = today or datetime.today()
+    today = today or dl.now_kst().date()          # 한국시간 날짜(서버 시간대 무관)
     month, day = QUARTER_READY[4]
     if (today.month, today.day) >= (month, day):
         return today.year - 1
@@ -419,7 +419,7 @@ def latest_annual_year(today=None):
 
 def recent_quarters(count=4, today=None):
     """공시가 끝난 최근 분기를 새 것부터 count개 돌려준다. [(연도, 분기), ...]"""
-    today = today or datetime.today()
+    today = today or dl.now_kst().date()          # 한국시간 날짜(서버 시간대 무관)
 
     # 올해 기준으로 '이미 공시된 분기'를 찾는다.
     year, quarter = today.year, 0

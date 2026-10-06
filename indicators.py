@@ -66,7 +66,7 @@ def _pct(value):
 
 def _fetch(code):
     """지표 계산용 일봉을 가져온다(1년 + 이동평균 여유분)."""
-    end = datetime.today()
+    end = dl.now_kst().date()                     # 한국시간 날짜(서버 시간대 무관)
     return dl.fetch_ohlcv_raw(code, end - timedelta(days=FETCH_DAYS), end)
 
 

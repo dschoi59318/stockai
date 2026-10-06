@@ -725,7 +725,7 @@ def _cache_path(code, base_date):
 def build_events(code, name, market=None, refresh=False, today=None, use_google=True):
     """종목 하나의 공시·뉴스·급변 사건 타임라인을 만든다(기준일별 파일 캐시). 실패하면 None."""
     code = str(code).zfill(6)
-    end = today or datetime.today()
+    end = today or dl.now_kst().date()              # 한국시간 날짜(서버 시간대 무관)
     fetch_start = end - timedelta(days=LOOKBACK_DAYS + PRICE_EXTRA_DAYS)
     df = dl.fetch_ohlcv_raw(code, fetch_start, end)
     if df is None or df.empty:
