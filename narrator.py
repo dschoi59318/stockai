@@ -281,13 +281,28 @@ FORMATS = {
 주가 움직임: (한 문장)
 거래: (한 문장)
 
-[결론 문단 구조 - 지침 4장 1번 2항]
-- 1문장: [핵심 긴장 문장 뼈대]를 자연스럽게 다듬어 씁니다. 뼈대의 숫자는 그대로 두고, 실적 숫자 1개와 가격 숫자 1개를 한 문장에 대비시킵니다.
-  종목명은 앞에 붙여도 되지만, 종합 상태 이름으로 시작하지 않고 이 문단 어디에도 종합 상태 이름을 쓰지 않습니다.
+[결론 문단 구조 - 지침 4장 1번 2항. 문장마다 자리와 역할이 정해져 있습니다]
+- 결론은 4문장 또는 5문장입니다. 한 자리의 문장을 둘로 나누거나 두 자리를 합치면 뒤 문장의 자리가 밀려 형식 위반이 됩니다.
+- 1문장: [핵심 긴장 문장 뼈대]를 한 문장 그대로 씁니다. 실적 숫자와 가격 숫자 두 개가 모두 이 한 문장 안에 있어야 합니다.
+  뼈대 끝의 괄호(예: '(최근 6개월 평균 대비 …%)')는 괄호째 그대로 둡니다. 괄호 안은 문장 길이(90자)에 세지 않습니다.
+  금액(조·억 원)이나 다른 숫자를 이 문장에 더하지 않고, 이 문장을 두 문장으로 나누지 않습니다.
+  종목명은 앞에 붙여도 되지만('종목명의 최근 6개월 …'), 종합 상태 이름으로 시작하지 않고 이 문단 어디에도 종합 상태 이름을 쓰지 않습니다.
 - 2문장: 1문장이 뜻하는 바를 해석합니다. 반드시 '~모습입니다.', '~흐름입니다.', '~로 보입니다.' 가운데 하나로 끝냅니다.
-- 3문장: 해석을 뒷받침하는 근거 1개(근거 강도 강함·보통 사건 1개, 또는 신호 근거의 다른 숫자 1개).
-- 4문장: 반전 조건 표 1번 조건을 조건과 거리 숫자로 씁니다.
+- 3문장: 해석을 뒷받침하는 근거 1개(근거 강도 강함·보통 사건 1개, 또는 신호 근거의 다른 숫자 1개). 한 문장으로만 씁니다.
+- 4문장: 반전 조건 표 1번 조건을 그 조건의 숫자(가격 등)와 '지금과의 거리' 숫자로 씁니다. 2번·3번 조건은 쓰지 않습니다.
 - 5문장(선택): 다음 확인 시점.
+
+[형식 예시 - 자리와 끝맺음만 보여 줍니다. 〈 〉 자리는 반드시 이 종목 입력으로 채우고, 〈 〉 기호는 쓰지 않습니다]
+## 결론
+〈종목명〉의 〈핵심 긴장 문장 뼈대를 괄호 숫자까지 그대로〉.
+〈1문장이 뜻하는 바〉 흐름입니다.
+〈강함·보통 사건 1개 또는 신호 근거의 다른 숫자 1개를 담은 한 문장〉.
+〈반전 조건 표 1번의 신호〉는 〈1번의 바뀌는 조건〉으로 바뀌며, 지금과의 거리는 〈1번의 거리〉입니다.
+〈다음 확인 시점 문장〉.
+## 왜 그런가
+실적: 〈실적 흐름과 그 근거 숫자를 담은 한 문장〉.
+주가 움직임: 〈가격 추세와 그 근거, 또는 상위 사건을 담은 한 문장〉.
+거래: 〈거래 관심도와 그 근거 숫자를 담은 한 문장〉.
 
 [왜 그런가 3줄]
 - '실적:'은 실적 흐름, '주가 움직임:'은 가격 추세와 상위 사건, '거래:'는 거래 관심도를 한 문장씩 씁니다.
@@ -964,6 +979,102 @@ def _retry_prompt(user, fails):
             + "\n\n위 문제를 모두 고쳐, 같은 출력 형식으로 처음부터 다시 씁니다.")
 
 
+# ---------------------------------------------------------------------------
+# 결론 호출: 위반 문장만 고치는 재요청 + 파이썬 사실 문장 대체
+# ---------------------------------------------------------------------------
+
+FALLBACK_MODEL = "python"
+FALLBACK_STAGE = "파이썬 사실 문장"
+INTERPRET_BY_KIND = {                       # 결론 2문장(해석) - 핵심 긴장 조합별 고정 문장
+    "방향이 엇갈림": "실적과 주가가 서로 다른 방향을 가리키는 흐름입니다.",
+    "방향이 같음": "실적과 주가가 같은 방향을 가리키는 흐름입니다.",
+    "보합 포함": "실적과 주가 가운데 한쪽은 뚜렷한 방향이 없는 흐름입니다.",
+    "실적 판정 불가": "실적 판정 없이 주가 흐름만 확인되는 모습입니다.",
+}
+
+
+def _ro(word):
+    """'로/으로' 조사: 받침이 있으면(ㄹ 받침 제외) '으로'."""
+    last = (word or "").rstrip()[-1:] or "가"
+    if "가" <= last <= "힣":
+        return "로" if (ord(last) - 0xAC00) % 28 in (0, 8) else "으로"
+    return "으로" if last in "036" else "로"
+
+
+def _signal(d, key):
+    return d.get(key) or {"판정": "판정 불가", "근거": "자료 부족"}
+
+
+def _conclusion_hints(attempt, d):
+    """직전 결론 답변에서 위반한 문장만 콕 집은 수정 지시 목록."""
+    parsed, check = attempt["parsed"], attempt["검증"]
+    sents = split_sentences(parsed["결론"] or "")
+    t, rows = d.get("핵심긴장"), d["반전조건"]
+    structure = check.get("형식", [])
+    hints = []
+    first_bad = any(x.startswith("1문장") for x in structure) or (sents and plain_len(sents[0]) > MAX_SENTENCE)
+    if first_bad and t:
+        hints.append("결론 1문장: 뼈대를 한 문장 그대로 씁니다(종목명만 앞에 붙일 수 있음, 나누지 않음, 금액 등 숫자 추가 없음) -> "
+                     f"'{t['뼈대']}.'")
+    for i, s in enumerate(sents[1:], 2):
+        if plain_len(s) > MAX_SENTENCE:
+            hints.append(f"결론 {i}문장({plain_len(s)}자): 숫자는 그대로 두고 수식어를 덜어 90자 안으로 줄입니다. "
+                         "둘로 나누지 않습니다(문장 수와 자리가 바뀌면 안 됩니다).")
+    if any(x.startswith("2문장") for x in structure):
+        hints.append("결론 2문장: 1문장을 해석하는 한 문장으로, '~모습입니다.' / '~흐름입니다.' / '~로 보입니다.' 가운데 하나로 끝냅니다.")
+    if any(x.startswith("4문장") for x in structure) and rows:
+        hints.append(f"결론 4문장: 반전 조건 표 1번만 씁니다 -> 조건 '{rows[0]['바뀌는 조건']}', "
+                     f"지금과의 거리 '{rows[0]['지금과의 거리']}'.")
+    hints += [x for x in structure if not x.startswith(("1문장", "2문장", "4문장"))]
+    hints += [f"{key}: " + " / ".join(items[:5]) for key, items in check.items()
+              if items and key not in ("형식", "문장 길이(90자)", WARN_KEY)]
+    for where, text in body_texts("conclusion", parsed)[1:]:
+        hints += [f"{where}({plain_len(s)}자): 90자 안으로 줄입니다." for s in split_sentences(text)
+                  if plain_len(s) > MAX_SENTENCE]
+    return hints
+
+
+def _retry_prompt_conclusion(user, attempt, d):
+    """결론 재요청: 직전 답변을 보여 주고 위반 문장만 고치게 한다(나머지 문장은 그대로)."""
+    hints = _conclusion_hints(attempt, d) or attempt["실패항목"]
+    return (user + "\n\n[직전 답변]\n" + attempt["text"]
+            + "\n\n[직전 답변에서 고칠 곳 - 아래 항목만 고칩니다]\n" + "\n".join(f"- {h}" for h in hints)
+            + "\n\n지적되지 않은 문장은 한 글자도 바꾸지 않습니다. 결론의 문장 수와 문장 자리(1~5문장)를 그대로 지켜, "
+              "같은 출력 형식으로 전체를 다시 씁니다.")
+
+
+def fallback_conclusion(d):
+    """AI 결론이 끝내 검증을 통과하지 못할 때 쓰는 파이썬 사실 문장(입력에 있는 판정·근거·숫자만 쓴다)."""
+    t, rows = d.get("핵심긴장"), d["반전조건"]
+    price, earn, vol = _signal(d, "가격 추세"), _signal(d, "실적 흐름"), _signal(d, "거래 관심도")
+    sents = [f"{t['뼈대']}." if t else f"{price['근거']}{_ro(price['근거'])} '{price['판정']}'에 해당합니다.",
+             INTERPRET_BY_KIND.get((t or {}).get("조합"), "실적과 주가의 흐름을 함께 확인해야 하는 모습입니다."),
+             f"{vol['근거']}입니다." if d.get("거래 관심도") else f"{earn['근거']}입니다."]
+    if rows:
+        r = rows[0]
+        cond = r["바뀌는 조건"]
+        s4 = f"{r['신호']}는 {cond}{_ro(cond)} 바뀌며, 지금과의 거리는 {r['지금과의 거리']}입니다."
+        if plain_len(s4) > MAX_SENTENCE:
+            s4 = f"{r['신호']}는 {cond}{_ro(cond)} 바뀝니다."
+        sents.append(s4)
+    when = split_sentences((d.get("확인시점") or {}).get("문장") or "")
+    if when:
+        sents.append(when[0])                           # 다음 확인 시점은 첫 문장만(결론 4~5문장)
+    lines = {label: _signal(d, key) for label, key in zip(LINE_LABELS, ("실적 흐름", "가격 추세", "거래 관심도"))}
+    body = ["## 결론", " ".join(sents), "## 왜 그런가"]
+    body += [f"{label}: 판정은 '{sig['판정']}'이고, 근거는 {sig['근거']}입니다." for label, sig in lines.items()]
+    return kr_dates("\n".join(body))
+
+
+def _fallback_attempt(call, input_text, d):
+    text, splits = auto_split(call, fallback_conclusion(d))
+    check, parsed = validate(call, text, input_text, d)
+    fails = failures(check)
+    return {"단계": FALLBACK_STAGE, "model": FALLBACK_MODEL, "text": text, "parsed": parsed, "검증": check,
+            "실패항목": fails, "통과": not fails, "input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0,
+            "output_total_tokens": 0, "stop": None, "cost_krw": 0.0, "치환": [], "분할": splits}
+
+
 def run_call(call, ind, d, inputs, report_hash, force=False, reuse=False):
     """호출 하나: 캐시 확인 -> 호출·치환·분할·검증 -> 재생성 -> Sonnet 보정. 결과 dict를 돌려준다."""
     spec = CALLS[call]
@@ -987,11 +1098,14 @@ def run_call(call, ind, d, inputs, report_hash, force=False, reuse=False):
 
     attempts = [_attempt(call, model, system, user, input_text, d, f"{short(model)} 1회")]
     if not attempts[-1]["통과"]:
-        attempts.append(_attempt(call, model, system, _retry_prompt(user, attempts[-1]["실패항목"]),
-                                 input_text, d, f"{short(model)} 재생성"))
+        retry = (_retry_prompt_conclusion(user, attempts[-1], d) if call == "conclusion"     # 결론: 위반 문장만 고치게
+                 else _retry_prompt(user, attempts[-1]["실패항목"]))
+        attempts.append(_attempt(call, model, system, retry, input_text, d, f"{short(model)} 재생성"))
     if not attempts[-1]["통과"] and model != REPAIR_MODEL:
         attempts.append(_attempt(call, REPAIR_MODEL, system, _retry_prompt(user, attempts[-1]["실패항목"]),
                                  input_text, d, f"{short(REPAIR_MODEL)} 보정"))
+    if not attempts[-1]["통과"] and call == "conclusion":     # 그래도 실패: 파이썬 사실 문장으로 대체(리포트는 항상 생성)
+        attempts.append(_fallback_attempt(call, input_text, d))
     final = attempts[-1]
     total = lambda key: sum(a[key] for a in attempts)
     meta = {
@@ -1002,7 +1116,8 @@ def run_call(call, ind, d, inputs, report_hash, force=False, reuse=False):
         "thinking_tokens": total("thinking_tokens"), "output_total_tokens": total("output_total_tokens"),
         "cost_krw": round(total("cost_krw"), 2),
         "시도경로": " → ".join(a["단계"] for a in attempts), "시도수": len(attempts),
-        "통과": final["통과"], "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "통과": final["통과"], "대체": final["model"] == FALLBACK_MODEL,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "시도별": [{"단계": a["단계"], "model": a["model"], "입력": a["input_tokens"], "출력": a["output_tokens"],
                     "사고": a["thinking_tokens"], "출력합계": a["output_total_tokens"], "종료": a["stop"],
                     "비용": round(a["cost_krw"], 2), "통과": a["통과"], "실패항목": a["실패항목"],

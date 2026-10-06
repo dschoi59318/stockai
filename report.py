@@ -549,7 +549,7 @@ def _ai_result(doc, ai, call, notify=True):
             _gray_box(doc, f"[AI 해설 없음: {name} - 호출 실패 {ai['오류'][call][:80]}]")
         return None
     result = ai["결과"][call]
-    if notify and not result["통과"]:
+    if notify and not result["통과"] and not result.get("대체"):    # 파이썬 사실 문장 대체는 본문에 표시하지 않음(로그만)
         _gray_box(doc, f"이 해설은 자동 검증 일부를 통과하지 못했습니다: {', '.join(narrator.failed_items(result))} "
                        f"({result['시도경로']})")
     return result["parsed"]
@@ -921,6 +921,8 @@ def _outlook_section(doc, d, easy, ai):
 
     doc.add_heading("다음 확인 시점", level=2)
     doc.add_paragraph(d["확인시점"]["문장"])
+    if d["확인시점"].get("확보문장"):                 # 마감이 지났는데 재무에 없는 분기가 있을 때만(사실 한 줄)
+        doc.add_paragraph(d["확인시점"]["확보문장"])
 
     doc.add_heading("지켜볼 숫자 3가지", level=2)
     for item in easy["장"][6]["문장"]:
@@ -1040,6 +1042,9 @@ def _ai_source_line(ai):
             parts.append(f"{name} 호출 실패")
             continue
         r = ai["결과"][call]
+        if r.get("대체"):                                # 결론 대체: 출처만 밝힌다(경위는 _narration_log.txt)
+            parts.append(f"{name} 파이썬 규칙 문장")
+            continue
         parts.append(f"{name} {r['model']}({r['시도경로']}{'' if r['통과'] else ', 검증 일부 미통과'})")
     return ("AI 해설: " + " · ".join(parts)
             + f" - 파이썬이 정한 판정·근거를 리포트 구성 지침 {direction.REPORT_GUIDE_VERSION} 6장 규칙으로 풀어 씀")
@@ -1169,6 +1174,48 @@ def run_v3_gate(path):
             "항목": r["findings"]}
 
 
+NARRATION_LOG = "_narration_log.txt"
+
+
+def log_narration(path, ai):
+    """AI 해설 호출별 시도 경로·실패 항목·대체 여부를 docx 옆 _narration_log.txt 에 이어 붙인다."""
+    if not ai:
+        return
+    lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {os.path.basename(path)}"]
+    for call in narrator.CALL_ORDER:
+        if call in ai["오류"]:
+            lines.append(f"  {call}: 호출 실패 {ai['오류'][call][:120]}")
+            continue
+        r = ai["결과"][call]
+        tag = "저장본" if r.get("cached") else f"비용 {r['이번비용']:,.2f}원"
+        lines.append(f"  {call}: {r['시도경로']} · {'통과' if r['통과'] else '미통과'}"
+                     f"{' · 파이썬 사실 문장 대체' if r.get('대체') else ''} · {tag}")
+        for a in r.get("시도별") or []:
+            if a.get("실패항목"):
+                lines.append(f"      - {a['단계']}: " + " | ".join(a["실패항목"]))
+    try:
+        with open(os.path.join(os.path.dirname(path), NARRATION_LOG), "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
+FIN_GAP_LOG = "_fin_gap_log.txt"
+
+
+def log_fin_gap(path, code, name, check):
+    """마감이 지났는데 재무에 없는 분기가 있으면 docx 옆 _fin_gap_log.txt 에 재무 갱신 대상으로 적는다."""
+    if not check.get("누락분기"):
+        return
+    line = (f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {name}({code}) 기대 분기 {check['누락분기']} 없음 · "
+            f"{check['확보문장']} -> 재무 갱신 대상\n")
+    try:
+        with open(os.path.join(os.path.dirname(path), FIN_GAP_LOG), "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
 def _output_path(name, code, today, out_dir, overwrite=False):
     """output/{종목명}_{코드}_{YYYYMMDD}.docx. 같은 이름이 있으면 _2, _3 ... (overwrite=True면 덮어쓴다)"""
     os.makedirs(out_dir, exist_ok=True)
@@ -1242,6 +1289,8 @@ def build_report(picked, ind=None, out_dir=OUTPUT_DIR, overwrite=False, events=N
         path = _output_path(name, code, today, out_dir, overwrite)
         doc.save(path)
 
+    log_narration(path, ai)                              # AI 해설 시도·대체 경위(리포트 옆 로그, 본문에는 남기지 않음)
+    log_fin_gap(path, code, name, d["확인시점"])           # 마감이 지났는데 빠진 분기 -> 재무 갱신 대상(로그만)
     gate = run_v3_gate(path)                             # 저장 직후 v3 관문(verify 전용, 로그는 docx 옆)
     return {"path": path, "차트엔진": {"가격": price_engine, "재무": fin_engines}, "방향": d, "쉽게읽기": easy, "ai": ai,
             "gate": gate, "지침버전경고": guides.check_versions()}

@@ -44,7 +44,7 @@ v1.3 반영(지침 11장 변경 이력)
  5.4 overall_state    : 종합 상태 이름(A x B 고정표) + 신호 C 보조 문구
  5.5 reversal_table   : 반전 조건 표(신호 / 지금 판정 / 바뀌는 조건 / 지금과의 거리)
  5.6 select_events    : 사건 최대 5개 + 근거 강도(강함 / 보통 / 약함 / 없음)
- 5.7 next_check       : 다음 확인 시점(정기보고서 제출 기한)
+ 5.7 next_check       : 다음 확인 시점(기준일 이후 가장 가까운 정기보고서 법정 마감)
  5.8 scenarios        : 시나리오 3개(상방 / 기본 / 하방)와 발동 조건
  5.9 tension_sentence : 핵심 긴장 문장 뼈대
  5.10 earnings_story_input : 8개 분기 표·같은 분기 비교 사실·계절성 판정
@@ -52,7 +52,7 @@ v1.3 반영(지침 11장 변경 이력)
 """
 
 import re
-from datetime import date, timedelta
+from datetime import date
 
 import easy_read
 import financials
@@ -86,9 +86,7 @@ VOLUME_TAG = {HOT: "(거래 관심 확대)", COLD: "(거래 관심 축소)"}
 # 5.6 근거 강도
 STRONG, MEDIUM, WEAK, NONE = "강함", "보통", "약함", "없음"
 
-# 5.7 정기보고서 제출 기한: 분기·반기 = 분기말 + 45일, 사업보고서 = 연말 + 90일
-QUARTER_END = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
-REPORT_DAYS = {1: 45, 2: 45, 3: 45, 4: 90}
+# 5.7 정기보고서 제출 기한: 법정 마감(1분기 5/15, 반기 8/14, 3분기 11/14, 사업보고서 3/31) - FILING_DEADLINES
 PERIODIC_RE = re.compile(r"(분기보고서|반기보고서|사업보고서)\s*\((\d{4})\.(\d{2})\)")
 
 ORDER_UP = "3개월 평균이 6개월 평균을 넘어서야 합니다"
@@ -487,17 +485,42 @@ def latest_periodic(events, fin=None):
     return None
 
 
+# 정기보고서 법정 제출 마감(월, 일) -> 그 보고서가 담는 분기. 4분기(사업보고서)는 다음 해 3월 31일.
+FILING_DEADLINES = ((3, 31, 4), (5, 15, 1), (8, 14, 2), (11, 14, 3))
+
+
+def _deadlines_around(base):
+    """기준일 앞뒤의 정기보고서 마감 목록 [(마감일, 보고서 연도, 분기)] (날짜 순)."""
+    out = []
+    for year in (base.year - 1, base.year, base.year + 1):
+        for m, d, q in FILING_DEADLINES:
+            out.append((date(year, m, d), year - 1 if q == 4 else year, q))
+    return sorted(out)
+
+
+def quarter_label(y, q):
+    return f"{y}년 연간(4분기 포함)" if q == 4 else f"{y}년 {q}분기"
+
+
 def next_check(base_date, events=None, fin=None):
-    """정기보고서가 아직 공시되지 않은 가장 이른 분기와 그 제출 기한(지침 5.7)."""
-    last = latest_periodic(events, fin)
-    if last is None:
-        return {"분기": None, "기한": None, "문장": "공시된 자료가 부족해 다음 확인 시점을 계산하지 못했습니다.",
-                "잠정실적이력": False, "근거": None}
-    y, q = (last[0] + 1, 1) if last[1] == 4 else (last[0], last[1] + 1)
-    m, d = QUARTER_END[q]
-    due = date(y, m, d) + timedelta(days=REPORT_DAYS[q])
-    label = f"{y}년 연간(4분기 포함)" if q == 4 else f"{y}년 {q}분기"
+    """다음 확인 시점(지침 5.7): 기준일 당일 또는 그 뒤로 가장 가까운 정기보고서 법정 마감과 그 분기.
+
+    마감이 이미 지난 분기(기준일 직전 마감)의 재무가 fin 에 없으면 "누락분기"와 본문용 "확보문장"
+    ('마지막 확보 분기: …')을 함께 돌려준다(갱신 대상 기록은 호출 쪽 로그). "문장"은 AI 입력에도 쓰이므로
+    형식을 바꾸지 않는다.
+    """
+    base = date.fromisoformat(str(base_date)[:10])
+    around = _deadlines_around(base)
+    due, y, q = next(x for x in around if x[0] >= base)
+    label = quarter_label(y, q)
     sentence = f"{label} 실적은 {easy_read.date_kr(due.isoformat())} 전후로 공시될 예정입니다(정기보고서 제출 기한 기준)."
+    _, py, pq = [x for x in around if x[0] < base][-1]          # 마감이 이미 지난 가장 최근 분기
+    have = [tuple(map(int, item["분기"].split("Q"))) for item in (fin or {}).get("분기") or []]
+    last_have = max(have) if have else None
+    missing, have_sentence = None, None
+    if last_have is not None and last_have < (py, pq):
+        missing = quarter_label(py, pq)
+        have_sentence = f"마지막 확보 분기: {quarter_label(*last_have)}"
     prelim = False
     for d in ((events or {}).get("공시") or {}).get("목록") or []:
         if "잠정" in d["제목"] and "실적" in d["제목"]:
@@ -505,8 +528,10 @@ def next_check(base_date, events=None, fin=None):
             break
     if prelim:
         sentence += " 이 회사는 정기보고서보다 먼저 잠정실적을 공시해 왔습니다."
+    last = latest_periodic(events, fin)
     return {"분기": label, "기한": due.isoformat(), "문장": sentence, "잠정실적이력": prelim,
-            "근거": f"공시된 마지막 정기보고서: {last[2]}"}
+            "근거": f"공시된 마지막 정기보고서: {last[2]}" if last else None,
+            "누락분기": missing, "확보문장": have_sentence}
 
 
 # ---------------------------------------------------------------------------
